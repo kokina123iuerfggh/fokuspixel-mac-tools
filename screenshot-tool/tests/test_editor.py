@@ -12,6 +12,7 @@ from PySide6.QtCore import QPoint, QPointF, QRect
 from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import QApplication, QGraphicsItem
 
+import screengrab
 from cursor_highlight import MAX_RADIUS, MIN_RADIUS, SIZE, CursorHighlight
 from editor import Canvas, EditorWindow
 from magnifier import DIAMETER, MagnifierLens
@@ -245,9 +246,53 @@ class CursorHighlightTest(unittest.TestCase):
     def test_circle_grows_with_the_radius(self):
         highlight = CursorHighlight(20)
         center = SIZE // 2
-        self.assertEqual(highlight.grab().toImage().pixelColor(center + 60, center).alpha(), 0)
+        self.assertEqual(highlight.grab().toImage().pixelColor(center + 100, center).alpha(), 0)
         highlight.set_radius(100)
-        self.assertGreater(highlight.grab().toImage().pixelColor(center + 60, center).alpha(), 0)
+        self.assertGreater(highlight.grab().toImage().pixelColor(center + 100, center).alpha(), 0)
+
+    def test_inside_of_the_ring_is_transparent(self):
+        highlight = CursorHighlight(40)
+        image = highlight.grab().toImage()
+        center = SIZE // 2
+        self.assertEqual(image.pixelColor(center, center).alpha(), 0)
+        self.assertEqual(image.pixelColor(center + 20, center - 10).alpha(), 0)
+        self.assertGreater(image.pixelColor(center + 40, center).alpha(), 0)
+
+    def test_ring_turns_red_when_pressed(self):
+        highlight = CursorHighlight(40)
+        center = SIZE // 2
+        self.assertGreater(highlight.grab().toImage().pixelColor(center + 40, center).blue(), 200)
+        highlight.set_pressed(True)
+        self.assertGreater(highlight.grab().toImage().pixelColor(center + 40, center).red(), 200)
+
+    def test_frame_is_magnified_inside_the_ring_only(self):
+        highlight = CursorHighlight(40, magnify=2.0)
+        frame = QImage(40, 40, QImage.Format.Format_ARGB32)
+        frame.fill(QColor("#00ff00"))
+        highlight.set_frame(frame)
+        image = highlight.grab().toImage()
+        center = SIZE // 2
+        self.assertEqual(image.pixelColor(center, center), QColor("#00ff00"))
+        self.assertEqual(image.pixelColor(center + 20, center + 20), QColor("#00ff00"))
+        self.assertEqual(image.pixelColor(center + 60, center).alpha(), 0)
+
+    def test_magnify_is_clamped_and_switching_it_off_drops_the_frame(self):
+        highlight = CursorHighlight(40, magnify=9.0)
+        self.assertEqual(highlight.magnify, 4.0)
+        frame = QImage(10, 10, QImage.Format.Format_ARGB32)
+        frame.fill(QColor("#00ff00"))
+        highlight.set_frame(frame)
+        highlight.set_magnify(1.0)
+        self.assertIsNone(highlight._frame)
+        self.assertEqual(highlight.grab().toImage().pixelColor(SIZE // 2, SIZE // 2).alpha(), 0)
+
+
+class ScreengrabTest(unittest.TestCase):
+    def test_capture_is_unavailable_outside_macos_and_returns_none(self):
+        if sys.platform == "darwin":
+            self.skipTest("nur ohne macOS")
+        self.assertFalse(screengrab.available())
+        self.assertIsNone(screengrab.capture_below(CursorHighlight(30), QRect(0, 0, 10, 10)))
 
 
 class MagnifierTest(unittest.TestCase):

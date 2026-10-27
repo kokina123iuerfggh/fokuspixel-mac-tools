@@ -1,7 +1,9 @@
 """Lupe: ein rundes Fenster neben dem Mauszeiger zeigt die Umgebung des Zeigers vergrößert."""
-from PySide6.QtCore import QPointF, QRectF, QTimer, Qt
-from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath, QPen
+from PySide6.QtCore import QPointF, QRect, QRectF, QTimer, Qt
+from PySide6.QtGui import QColor, QCursor, QGuiApplication, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import QWidget
+
+import screengrab
 
 DIAMETER = 220
 GAP = 70  # Abstand der Lupe zum Zeiger, so liegt sie nie im aufgenommenen Bereich
@@ -23,6 +25,7 @@ class MagnifierLens(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.resize(DIAMETER, DIAMETER)
         self.zoom = zoom
+        self.reference_provider = lambda: self  # Fenster, unter dem aufgenommen wird (der Leuchtkreis, wenn er an ist)
         self._frame = None
         self._timer = QTimer(self)
         self._timer.setInterval(40)
@@ -64,7 +67,12 @@ class MagnifierLens(QWidget):
         side = max(8, int(DIAMETER / self.zoom))
         left = cursor.x() - side // 2 - area.x()
         top = cursor.y() - side // 2 - area.y()
-        self.set_frame(screen.grabWindow(0, left, top, side, side))
+        rect = QRect(cursor.x() - side // 2, cursor.y() - side // 2, side, side)
+        image = screengrab.capture_below(self.reference_provider(), rect)
+        if image is not None:
+            self.set_frame(QPixmap.fromImage(image))
+        else:  # ohne macOS-Funktion: normale Aufnahme, dann kann der Leuchtkreis mit im Bild sein
+            self.set_frame(screen.grabWindow(0, left, top, side, side))
         self.move(*self.lens_position(cursor, area))
 
     def paintEvent(self, _event):

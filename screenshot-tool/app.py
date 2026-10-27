@@ -15,7 +15,7 @@ from PySide6.QtCore import QObject, QSettings, QTimer, Qt, Signal
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from cursor_highlight import DEFAULT_RADIUS, PRESETS, CursorHighlight
+from cursor_highlight import DEFAULT_MAGNIFY, DEFAULT_RADIUS, MAGNIFY_PRESETS, PRESETS, CursorHighlight
 from editor import EditorWindow
 from magnifier import ZOOMS, MagnifierLens
 from resources import resource_path
@@ -133,8 +133,12 @@ def main():
 
     prefs = QSettings()
     bridge = Bridge()
-    highlight = CursorHighlight(int(prefs.value("radius", DEFAULT_RADIUS)))
+    highlight = CursorHighlight(
+        int(prefs.value("radius", DEFAULT_RADIUS)), float(prefs.value("magnify", DEFAULT_MAGNIFY))
+    )
     lens = MagnifierLens(float(prefs.value("zoom", 3.0)))
+    # Die Lupe nimmt unterhalb des Leuchtkreises auf, damit er nicht mit im Bild ist
+    lens.reference_provider = lambda: highlight if highlight.isVisible() else lens
     editors = []
 
     def open_capture(area):
@@ -153,16 +157,9 @@ def main():
         # Kurz warten, damit das Menü verschwunden ist
         QTimer.singleShot(250, lambda: open_capture(area))
 
-    paused_highlight = {"on": False}
-
     def toggle_cursor():
         if highlight.isVisible():
             highlight.stop()
-            paused_highlight["on"] = False
-        elif lens.isVisible():
-            paused_highlight["on"] = True  # erscheint wieder, sobald die Lupe aus ist
-            cursor_action.setChecked(True)
-            return
         else:
             highlight.start()
         cursor_action.setChecked(highlight.isVisible())
@@ -170,21 +167,15 @@ def main():
     def toggle_lens():
         if lens.isVisible():
             lens.stop()
-            if paused_highlight["on"]:
-                paused_highlight["on"] = False
-                highlight.start()
         else:
-            # Der Leuchtkreis liegt genau dort, wo die Lupe hinschaut. Solange die Lupe an ist,
-            # pausiert er, sonst zeigt die Lupe nur den vergrößerten Kreis.
-            if highlight.isVisible():
-                highlight.stop()
-                paused_highlight["on"] = True
             lens.start()
         lens_action.setChecked(lens.isVisible())
-        cursor_action.setChecked(highlight.isVisible())
 
     def set_radius(radius):
         prefs.setValue("radius", highlight.set_radius(radius))
+
+    def set_magnify(factor):
+        prefs.setValue("magnify", highlight.set_magnify(factor))
 
     def set_zoom(zoom):
         lens.set_zoom(zoom)
@@ -216,7 +207,17 @@ def main():
         size_menu.addAction(action)
         size_actions.append((action, radius))
 
-    lens_action = QAction(f"Lupe neben dem Zeiger ({HOTKEY_LENS}), pausiert den Leuchtkreis", menu, checkable=True)
+    magnify_menu = QMenu("Vergrößerung im Leuchtkreis", menu)
+    magnify_group = QActionGroup(magnify_menu)
+    magnify_actions = []
+    for label, factor in MAGNIFY_PRESETS:
+        action = QAction(label, magnify_menu, checkable=True)
+        action.triggered.connect(lambda _c=False, f=factor: set_magnify(f))
+        magnify_group.addAction(action)
+        magnify_menu.addAction(action)
+        magnify_actions.append((action, factor))
+
+    lens_action = QAction(f"Lupe neben dem Zeiger ({HOTKEY_LENS})", menu, checkable=True)
     lens_action.triggered.connect(lambda _checked: toggle_lens())
     zoom_menu = QMenu("Vergrößerung der Lupe", menu)
     zoom_group = QActionGroup(zoom_menu)
@@ -233,6 +234,8 @@ def main():
             action.setChecked(highlight.radius == radius)
         for action, zoom in zoom_actions:
             action.setChecked(lens.zoom == zoom)
+        for action, factor in magnify_actions:
+            action.setChecked(highlight.magnify == factor)
 
     folder_action = QAction("Screenshot-Ordner öffnen", menu)
     folder_action.triggered.connect(lambda: subprocess.run(["open", args.save_dir], check=False))
@@ -244,6 +247,7 @@ def main():
     menu.addSeparator()
     menu.addAction(cursor_action)
     menu.addMenu(size_menu)
+    menu.addMenu(magnify_menu)
     menu.addAction(lens_action)
     menu.addMenu(zoom_menu)
     menu.addSeparator()

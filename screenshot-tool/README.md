@@ -3,8 +3,8 @@
 Ein Symbol in der Menüleiste mit zwei Funktionen:
 
 1. **Screenshot aufnehmen und bearbeiten:** Bereich oder ganzen Bildschirm aufnehmen, dann bearbeiten und als PNG speichern oder in die Zwischenablage kopieren. Werkzeuge: Auswählen und Verschieben, Pfeil, Linie, Rahmen, Kreis, Stift, Textmarker, Text, Verpixeln (für sensible Stellen), nummerierte Markierung und Zuschneiden. Dazu neun Farben, eigene Farbe, Stärkeregler, Rückgängig und Wiederholen.
-2. **Mauszeiger hervorheben:** Ein grüner Leuchtkreis folgt dem Mauszeiger, damit Zuschauer ihn bei Bildschirmübertragungen besser sehen. Beim Klicken wird der Kreis rot. Mit gedrückter **Optionstaste und dem Mausrad** machst du ihn stufenlos größer oder kleiner, oder du wählst im Menü eine feste Größe.
-3. **Lupe:** Ein rundes Fenster neben dem Zeiger zeigt die Umgebung des Zeigers 2-, 3- oder 4-fach vergrößert, ideal für kleine Schrift. Solange die Lupe an ist, pausiert der Leuchtkreis, weil die Lupe sonst nur den vergrößerten Kreis zeigen würde. Er erscheint wieder, sobald die Lupe aus ist.
+2. **Mauszeiger hervorheben:** Ein blauer Ring folgt dem Mauszeiger, damit Zuschauer ihn bei Bildschirmübertragungen besser sehen. Innen ist er durchsichtig und zeigt den Bereich unter dem Zeiger leicht vergrößert (einstellbar: aus, 1,5×, 2×, 3×). Beim Klicken wird der Ring rot. Mit gedrückter **Optionstaste und dem Mausrad** machst du ihn stufenlos größer oder kleiner, oder du wählst im Menü eine feste Größe.
+3. **Lupe:** Ein rundes Fenster neben dem Zeiger zeigt die Umgebung des Zeigers 2-, 3- oder 4-fach vergrößert, ideal für kleine Schrift.
 
 Alles läuft lokal auf dem Mac, ohne Claude und ohne Internet.
 
@@ -46,6 +46,7 @@ Nach dem Erteilen die App neu starten. Ohne Eingabeüberwachung funktionieren Me
 
 ## Bekannte Grenzen
 
+- Die Vergrößerung im Ring und die Lupe nehmen den Bildschirm *unterhalb* der eigenen Fenster auf (eine macOS-Funktion), damit der Ring nicht selbst im Bild ist. Steht die Funktion nicht zur Verfügung, bleibt der Ring innen einfach durchsichtig.
 - Verpixelte Stellen lassen sich nicht verschieben, damit das Original darunter verdeckt bleibt. Falsch gesetzt: Rückgängig (⌘Z) und neu ziehen.
 - Die Lupe und das Größenändern per Mausrad brauchen die Berechtigungen Bildschirmaufnahme und Eingabeüberwachung. Das Mausrad scrollt mit gedrückter Optionstaste in manchen Programmen zusätzlich.
 - Der Leuchtkreis und die Lupe erscheinen nicht über Programmen im macOS-Vollbildmodus. Für Bildschirmübertragungen ein Fenster nicht im Vollbild, sondern maximiert nutzen.
