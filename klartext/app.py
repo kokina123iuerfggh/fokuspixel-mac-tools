@@ -25,6 +25,7 @@ from pipeline import finalize
 from resources import resource_path
 from settings import APP_NAME, Settings, load_api_key, save_api_key, support_dir
 from single_instance import SingleInstance
+from version import app_version
 
 KEY_NAMES = {
     "alt_r": "Rechte Option",
@@ -206,6 +207,7 @@ def build_menu(menu, controller, settings, history, app):
         lambda: subprocess.run(["open", "-t", str(settings.path)], check=False)
     )
     menu.addSeparator()
+    menu.addAction(f"Klartext {app_version()}").setEnabled(False)
     menu.addAction("Beenden").triggered.connect(app.quit)
 
 
@@ -256,6 +258,9 @@ def selftest_model():
 
 
 def main():
+    if "--version" in sys.argv:
+        print(app_version())
+        sys.exit(0)
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     if "--selftest-model" in sys.argv:

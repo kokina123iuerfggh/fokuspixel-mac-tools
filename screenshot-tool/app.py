@@ -20,6 +20,7 @@ from editor import EditorWindow
 from magnifier import ZOOMS, MagnifierLens
 from resources import resource_path
 from single_instance import SingleInstance
+from version import app_version
 
 HOTKEY_AREA = "<ctrl>+<alt>+s"
 HOTKEY_CURSOR = "<ctrl>+<alt>+m"
@@ -110,6 +111,9 @@ def selftest():
 
 
 def main():
+    if "--version" in sys.argv:
+        print(app_version())
+        sys.exit(0)
     if "--selftest" in sys.argv:
         sys.exit(selftest())
     instance = SingleInstance("bildschirm-werkzeug")
@@ -224,6 +228,8 @@ def main():
     menu.addMenu(zoom_menu)
     menu.addSeparator()
     menu.addAction(folder_action)
+    menu.addSeparator()
+    menu.addAction(f"Bildschirm-Werkzeug {app_version()}").setEnabled(False)
     menu.addAction(quit_action)
     menu.aboutToShow.connect(refresh_checks)
 

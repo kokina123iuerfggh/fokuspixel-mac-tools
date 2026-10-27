@@ -3,14 +3,13 @@ name: Mac-Apps bauen
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   pull_request:
   workflow_dispatch:
     inputs:
       release:
-        description: "Release-Name, z. B. v0.1.0. Leer lassen für einen reinen Testbau ohne Veröffentlichung."
-        required: false
-        default: ""
+        description: "Als neues Release veröffentlichen. Die Version steht in der Datei VERSION und muss neu sein."
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -23,13 +22,24 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Versionsnummer prüfen
+        run: |
+          python - <<'PY'
+          import re
+          import sys
+
+          version = open("VERSION").read().strip()
+          if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+              sys.exit("VERSION ist keine Versionsnummer: " + version)
+          print("Version", version)
+          PY
       - name: Klartext testen
         run: python -m unittest discover -s klartext/tests -v
 
   build:
     needs: tests
-    # Gebaut wird nur für ein Release (Tag v...) oder auf Knopfdruck, nicht bei jedem Push
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    # Gebaut wird nur auf Knopfdruck (Actions > Mac-Apps bauen > Run workflow), nicht bei jedem Push
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-14 # Apple Silicon (M1 und neuer)
     steps:
       - uses: actions/checkout@v4
@@ -37,10 +47,26 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Version lesen und prüfen
+        id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Version $VERSION"
+          if [ "${{ inputs.release }}" = "true" ] && gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Das Release v$VERSION gibt es schon. Bitte zuerst die Datei VERSION erhöhen."
+            exit 1
+          fi
+
       - name: Klartext bauen
         run: bash klartext/build_app.sh
 
-      - name: Klartext prüfen
+      - name: Klartext prüfen (Version)
+        run: test "$(klartext/dist/Klartext.app/Contents/MacOS/Klartext --version)" = "${{ steps.version.outputs.version }}"
+
+      - name: Klartext prüfen (Bausteine)
         run: klartext/dist/Klartext.app/Contents/MacOS/Klartext --selftest
 
       - name: Klartext prüfen (Sprachmodell laden, darf sich nicht selbst neu starten)
@@ -50,7 +76,10 @@ jobs:
       - name: Bildschirm-Werkzeug bauen
         run: bash screenshot-tool/build_app.sh
 
-      - name: Bildschirm-Werkzeug prüfen
+      - name: Bildschirm-Werkzeug prüfen (Version)
+        run: test "$(screenshot-tool/dist/Bildschirm-Werkzeug.app/Contents/MacOS/Bildschirm-Werkzeug --version)" = "${{ steps.version.outputs.version }}"
+
+      - name: Bildschirm-Werkzeug prüfen (Bausteine)
         run: screenshot-tool/dist/Bildschirm-Werkzeug.app/Contents/MacOS/Bildschirm-Werkzeug --selftest
 
       - name: ZIP-Dateien packen
@@ -66,8 +95,8 @@ jobs:
           path: release/*.zip
 
       - name: Release veröffentlichen
-        if: startsWith(github.ref, 'refs/tags/v') || inputs.release != ''
+        if: ${{ inputs.release }}
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ inputs.release || github.ref_name }}
-        run: gh release create "$TAG" release/*.zip --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+          VERSION: ${{ steps.version.outputs.version }}
+        run: gh release create "v$VERSION" release/*.zip --target "$GITHUB_SHA" --title "Version $VERSION" --generate-notes

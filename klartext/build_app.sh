@@ -22,6 +22,10 @@ source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt pyinstaller pillow
 
+VERSION="$(tr -d '[:space:]' < ../VERSION)"
+cp ../VERSION assets/VERSION
+echo "Version $VERSION"
+
 pyinstaller --noconfirm --windowed --name "Klartext" \
   --icon assets/icon.png --add-data "assets:assets" \
   --collect-all faster_whisper --collect-all ctranslate2 --collect-all onnxruntime \
@@ -31,6 +35,9 @@ pyinstaller --noconfirm --windowed --name "Klartext" \
 
 APP="dist/Klartext.app"
 PLIST="$APP/Contents/Info.plist"
+# Versionsnummer für das Finder-Infofenster
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 # Kein Dock-Symbol, nur das Symbol in der Menüleiste
 plutil -insert LSUIElement -bool true "$PLIST"
 # Ohne diesen Text fragt macOS nicht nach der Mikrofon-Berechtigung

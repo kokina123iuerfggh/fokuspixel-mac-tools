@@ -20,10 +20,17 @@ echo "Nutze $PY"
 source .venv/bin/activate
 pip install -r requirements.txt pyinstaller pillow
 
+VERSION="$(tr -d '[:space:]' < ../VERSION)"
+cp ../VERSION assets/VERSION
+echo "Version $VERSION"
+
 pyinstaller --noconfirm --windowed --name "Bildschirm-Werkzeug" \
   --icon assets/icon.png --add-data "assets:assets" app.py
 
 APP="dist/Bildschirm-Werkzeug.app"
+# Versionsnummer für das Finder-Infofenster
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 # Kein Dock-Symbol, nur das Symbol in der Menüleiste
 plutil -insert LSUIElement -bool true "$APP/Contents/Info.plist"
 # Ad-hoc-Signatur, damit macOS die erteilten Berechtigungen behält

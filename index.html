@@ -29,6 +29,8 @@
   header img { width: 220px; max-width: 60%; height: auto; }
   h1 { font-size: clamp(28px, 6vw, 44px); line-height: 1.15; margin: 16px 0 8px; letter-spacing: -0.02em; }
   header p { color: var(--muted); max-width: 560px; margin: 0 auto; }
+  .version { margin-top: 10px; font-size: 14px; }
+  .version strong { color: var(--green); }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 20px; margin: 24px 0 40px; }
   .card {
     background: var(--panel);
@@ -91,6 +93,7 @@
   <img src="logo.png" alt="Fokus Pixel">
   <h1>Kleine Werkzeuge für den Mac</h1>
   <p>Selbst gebaut, laufen lokal auf deinem Mac und brauchen keinen Account.</p>
+  <p class="version" id="version" hidden>Aktuelle Version: <strong id="version-number"></strong></p>
 </header>
 
 <main class="wrap">
@@ -161,5 +164,16 @@ bash build_app.sh</pre>
     Fokus Pixel · <a href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools">Quellcode auf GitHub</a>
   </div>
 </footer>
+<script>
+  // Zeigt die neueste veröffentlichte Version. Ohne Verbindung zu GitHub bleibt die Zeile einfach weg.
+  fetch("https://api.github.com/repos/kokina123iuerfggh/fokuspixel-mac-tools/releases/latest")
+    .then(function (r) { return r.ok ? r.json() : Promise.reject(); })
+    .then(function (d) {
+      var date = new Date(d.published_at).toLocaleDateString("de-DE");
+      document.getElementById("version-number").textContent = d.tag_name + " vom " + date;
+      document.getElementById("version").hidden = false;
+    })
+    .catch(function () {});
+</script>
 </body>
 </html>

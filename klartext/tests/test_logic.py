@@ -17,6 +17,7 @@ from history import History
 from hotkey import PushToTalk
 from settings import Settings, load_api_key, save_api_key
 from single_instance import SingleInstance
+from version import app_version
 
 
 class CleanupTest(unittest.TestCase):
@@ -225,6 +226,17 @@ class StartupSafetyTest(unittest.TestCase):
 
     def test_model_download_does_not_create_process_locks(self):
         self.assertIn("tqdm.set_lock(threading.RLock())", self.source("engine.py"))
+
+
+class VersionTest(unittest.TestCase):
+    def test_version_file_is_a_version_number(self):
+        import re
+
+        version = (Path(__file__).resolve().parent.parent.parent / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
+
+    def test_app_version_is_never_empty(self):
+        self.assertTrue(app_version())
 
 
 if __name__ == "__main__":
