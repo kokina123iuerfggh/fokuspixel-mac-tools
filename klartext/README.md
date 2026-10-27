@@ -6,7 +6,7 @@ Die Spracherkennung läuft **lokal** auf deinem Mac. Das Audio verlässt den Rec
 
 ## Was es kann
 
-- **Halten oder tippen:** Taste gedrückt halten und sprechen. Oder kurz antippen für den Freihand-Modus und zum Beenden noch einmal tippen. Standardtaste ist die rechte Option-Taste.
+- **Halten oder tippen:** Taste gedrückt halten und sprechen. Oder kurz antippen für den Freihand-Modus und zum Beenden noch einmal tippen. Standardtaste ist die rechte Option-Taste. Die Taste stellst du im Menü unter **Aufnahme-Taste** ein.
 - **Aufräumen:** Entfernt Füllwörter („äh“, „ähm“), Wiederholungen („ich ich“), setzt Leerzeichen und Großschreibung. Regeln sind sprachabhängig, damit zum Beispiel das deutsche „um“ erhalten bleibt.
 - **Optional mit Claude:** Löst Selbstkorrekturen auf („Freitag, äh, Donnerstag“ wird zu „Donnerstag“) und passt den Stil an (neutral, locker, formell). Dabei wird nur der erkannte Text gesendet, nie Audio. Ohne Schlüssel oder bei einem Fehler arbeitet automatisch die lokale Regel-Variante.
 - **Wörterbuch:** Namen und Fachbegriffe richtig schreiben.
@@ -64,7 +64,7 @@ Im Menü „Wörterbuch und Kürzel bearbeiten …“ öffnet sich die Datei `co
 }
 ```
 
-Gültige Tasten für `key` sind zum Beispiel `alt_r`, `alt_l`, `cmd_r`, `ctrl_r`, `f6`. Die Fn-Taste lässt sich auf dem Mac nicht abfragen. Die Datei liegt unter `~/Library/Application Support/Klartext/`, dort auch der Verlauf.
+Die Aufnahme-Taste musst du nicht in dieser Datei ändern: Im Menü unter **Aufnahme-Taste** wählst du einen Vorschlag oder klickst auf **Andere Taste festlegen …** und drückst die gewünschte Taste. Das gilt sofort und wird gemerkt. Nicht geeignet sind Tasten, die man beim Schreiben braucht (Buchstaben, Leertaste, Return, Pfeile und ähnliche). Die Fn-Taste lässt sich auf dem Mac nicht abfragen. Die Datei liegt unter `~/Library/Application Support/Klartext/`, dort auch der Verlauf.
 
 ## Claude zuschalten (optional)
 

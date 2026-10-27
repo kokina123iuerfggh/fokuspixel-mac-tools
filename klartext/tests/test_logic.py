@@ -14,7 +14,7 @@ import cleanup
 import llm
 import pipeline
 from history import History
-from hotkey import PushToTalk
+from hotkey import KeyBinding, PushToTalk, display_name, is_suitable_key, key_name, normalise_key_name
 from settings import Settings, load_api_key, save_api_key
 from single_instance import SingleInstance
 from version import app_version
@@ -152,6 +152,96 @@ class PushToTalkTest(unittest.TestCase):
         self.assertEqual(self.events, ["start"])
 
 
+class KeyBindingTest(unittest.TestCase):
+    def setUp(self):
+        self.events = []
+        self.talk = PushToTalk(
+            lambda: self.events.append("start"), lambda: self.events.append("stop"), tap_seconds=0.3, clock=lambda: 10.0
+        )
+        self.binding = KeyBinding(self.talk, "alt_r")
+
+    def hold(self, name):
+        self.binding.press(name)
+        self.binding.release(name)
+
+    def test_only_the_chosen_key_records(self):
+        self.binding.press("f6")
+        self.binding.release("f6")
+        self.assertEqual(self.events, [])
+        self.binding.press("alt_r")
+        self.assertEqual(self.events, ["start"])
+
+    def test_chosen_key_can_be_changed_while_running(self):
+        self.binding.set_key("f6")
+        self.binding.press("alt_r")
+        self.assertEqual(self.events, [])
+        self.binding.press("f6")
+        self.assertEqual(self.events, ["start"])
+
+    def test_changing_the_key_stops_a_running_recording(self):
+        self.binding.press("alt_r")
+        self.binding.set_key("f6")
+        self.assertEqual(self.events, ["start", "stop"])
+        self.assertEqual(self.talk.state, "idle")
+
+    def test_next_key_press_is_captured_instead_of_recording(self):
+        captured = []
+        self.binding.capture_next(captured.append)
+        self.assertTrue(self.binding.capturing)
+        self.binding.press("f8")
+        self.assertEqual(captured, ["f8"])
+        self.assertFalse(self.binding.capturing)
+        self.assertEqual(self.events, [])
+        self.assertEqual(self.binding.key, "alt_r")  # erst die App übernimmt die Taste
+
+    def test_capturing_the_chosen_key_itself_does_not_start_recording(self):
+        captured = []
+        self.binding.capture_next(captured.append)
+        self.binding.press("alt_r")
+        self.assertEqual((captured, self.events), (["alt_r"], []))
+
+    def test_keys_without_name_are_reported_as_none_while_capturing(self):
+        captured = []
+        self.binding.capture_next(captured.append)
+        self.binding.press(None)
+        self.assertEqual(captured, [None])
+
+    def test_capture_can_be_cancelled(self):
+        self.binding.capture_next(lambda name: None)
+        self.assertTrue(self.binding.cancel_capture())
+        self.assertFalse(self.binding.cancel_capture())
+
+    def test_keys_without_name_never_record(self):
+        self.binding.press(None)
+        self.binding.release(None)
+        self.assertEqual(self.events, [])
+
+    def test_old_left_key_names_are_converted(self):
+        self.assertEqual(normalise_key_name("alt_l"), "alt")
+        binding = KeyBinding(self.talk, "alt_l")
+        binding.press("alt")
+        self.assertEqual(self.events, ["start"])
+
+    def test_unsuitable_and_suitable_keys(self):
+        for name in ("enter", "space", "esc", "backspace", "up", "caps_lock", "", None):
+            self.assertFalse(is_suitable_key(name), name)
+        for name in ("alt_r", "alt_l", "cmd_r", "f6", "shift_r", "ctrl_r"):
+            self.assertTrue(is_suitable_key(name), name)
+
+    def test_display_names(self):
+        self.assertEqual(display_name("alt_r"), "Rechte Option")
+        self.assertEqual(display_name("alt_l"), "Linke Option")
+        self.assertEqual(display_name("f6"), "F6")
+        self.assertEqual(display_name("media_play_pause"), "MEDIA PLAY PAUSE")
+
+    def test_key_name_reads_pynput_style_objects(self):
+        class Special:
+            name = "alt_r"
+
+        self.assertEqual(key_name(Special()), "alt_r")
+        self.assertIsNone(key_name(object()))
+
+
 class StorageTest(unittest.TestCase):
     def test_settings_roundtrip_and_defaults(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -230,8 +320,6 @@ class StartupSafetyTest(unittest.TestCase):
 
 class VersionTest(unittest.TestCase):
     def test_version_file_is_a_version_number(self):
-        import re
-
         version = (Path(__file__).resolve().parent.parent.parent / "VERSION").read_text(encoding="utf-8").strip()
         self.assertRegex(version, r"^\d+\.\d+\.\d+$")
 

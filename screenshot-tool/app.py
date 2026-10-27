@@ -108,7 +108,7 @@ def selftest():
     import pynput.keyboard
     import pynput.mouse
 
-    print("Selbsttest ok: PySide6", PySide6.__version__)
+    print("Selbsttest ok: PySide6", PySide6.__version__, pynput.keyboard.__name__, pynput.mouse.__name__)
     return 0
 
 

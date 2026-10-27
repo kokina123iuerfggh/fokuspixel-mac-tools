@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -19,7 +19,16 @@ from PySide6.QtWidgets import (
 from audio import Recorder
 from engine import Transcriber, paste_text
 from history import History
-from hotkey import PushToTalk, resolve_key
+from hotkey import (
+    DEFAULT_KEY,
+    PRESET_KEYS,
+    KeyBinding,
+    PushToTalk,
+    display_name,
+    is_suitable_key,
+    key_name,
+    normalise_key_name,
+)
 from overlay import BLUE, GREEN, ORANGE, RED, StatusPill
 from pipeline import finalize
 from resources import resource_path
@@ -27,12 +36,6 @@ from settings import APP_NAME, Settings, load_api_key, save_api_key, support_dir
 from single_instance import SingleInstance
 from version import app_version
 
-KEY_NAMES = {
-    "alt_r": "Rechte Option",
-    "alt_l": "Linke Option",
-    "cmd_r": "Rechte Befehlstaste",
-    "ctrl_r": "Rechte Control-Taste",
-}
 LANGUAGES = [("Deutsch", "de"), ("Englisch", "en"), ("Automatisch erkennen", "auto"), ("Französisch", "fr"), ("Spanisch", "es")]
 CLEANUPS = [
     ("Aus (nur Wörterbuch und Kürzel)", "aus"),
@@ -57,6 +60,7 @@ class Controller(QObject):
     model_ready = Signal()
     text_ready = Signal(str, str)
     failed = Signal(str)
+    key_captured = Signal(str)  # leer, wenn eine Taste ohne Namen (Buchstabe, Zahl) gedrückt wurde
 
     def __init__(self, settings, history, pill):
         super().__init__()
@@ -174,11 +178,12 @@ def add_choice_menu(menu, title, options, current, on_pick):
         submenu.addAction(action)
 
 
-def build_menu(menu, controller, settings, history, app):
+def build_menu(menu, controller, settings, history, app, binding):
     menu.clear()
-    key = KEY_NAMES.get(settings["key"], settings["key"].upper())
-    info = menu.addAction(f"Taste halten: {key}  ·  kurz tippen = Freihand")
+    key_label = display_name(settings["key"])
+    info = menu.addAction(f"Taste halten: {key_label}  ·  kurz tippen = Freihand")
     info.setEnabled(False)
+    add_key_menu(menu, controller, settings, binding, key_label)
     menu.addSeparator()
 
     def pick_cleanup(value):
@@ -217,21 +222,63 @@ def build_menu(menu, controller, settings, history, app):
     menu.addAction("Beenden").triggered.connect(app.quit)
 
 
+def apply_key(name, controller, settings, binding):
+    binding.set_key(name)
+    settings["key"] = binding.key
+    controller.pill.show_state(f"Aufnahme-Taste: {display_name(binding.key)}", GREEN, 2500)
+
+
+def start_key_capture(controller, binding):
+    """Wartet auf den nächsten Tastendruck und meldet ihn über controller.key_captured."""
+    controller.pill.show_state("Drücke jetzt die gewünschte Taste …  (Esc bricht ab)", BLUE)
+    binding.capture_next(lambda name: controller.key_captured.emit(name or ""))
+    QTimer.singleShot(
+        10000,
+        lambda: binding.cancel_capture() and controller.pill.show_state("Keine Taste gedrückt", ORANGE, 2000),
+    )
+
+
+def handle_captured_key(name, controller, settings, binding):
+    if name == "esc":
+        controller.pill.show_state("Abgebrochen", ORANGE, 1500)
+    elif not is_suitable_key(name):
+        controller.pill.show_state("Diese Taste passt nicht. Bitte eine andere wählen.", ORANGE, 3500)
+    else:
+        apply_key(name, controller, settings, binding)
+
+
+def add_key_menu(menu, controller, settings, binding, key_label):
+    key_menu = menu.addMenu(f"Aufnahme-Taste: {key_label}")
+    group = QActionGroup(key_menu)
+    group.setExclusive(True)
+    current = normalise_key_name(settings["key"])
+    choices = list(PRESET_KEYS)
+    if current not in dict(choices):  # selbst festgelegte Taste mit anzeigen
+        choices.append((current, display_name(current)))
+    for name, label in choices:
+        action = QAction(label, key_menu, checkable=True)
+        action.setChecked(name == current)
+        action.triggered.connect(lambda _c=False, n=name: apply_key(n, controller, settings, binding))
+        group.addAction(action)
+        key_menu.addAction(action)
+    key_menu.addSeparator()
+    key_menu.addAction("Andere Taste festlegen …").triggered.connect(
+        lambda: start_key_capture(controller, binding)
+    )
+    key_menu.addAction("Die Fn-Taste lässt sich auf dem Mac nicht nutzen").setEnabled(False)
+
+
 def copy_text(controller, text):
     QGuiApplication.clipboard().setText(text)
     controller.pill.show_state("In die Zwischenablage kopiert", GREEN, 1200)
 
 
-def start_listener(controller, settings):
+def start_listener(binding):
     from pynput import keyboard
 
-    target = resolve_key(settings["key"])
-    talk = PushToTalk(
-        controller.start_requested.emit, controller.stop_requested.emit, settings["tap_seconds"]
-    )
     listener = keyboard.Listener(
-        on_press=lambda k: k == target and talk.press(),
-        on_release=lambda k: k == target and talk.release(),
+        on_press=lambda k: binding.press(key_name(k)),
+        on_release=lambda k: binding.release(key_name(k)),
     )
     listener.start()
     return listener
@@ -246,7 +293,8 @@ def selftest():
     import pynput
     import sounddevice
 
-    print("Selbsttest ok:", faster_whisper.__name__, ctranslate2.__version__, numpy.__version__)
+    modules = (ctranslate2, faster_whisper, numpy, onnxruntime, pynput, sounddevice)
+    print("Selbsttest ok:", ", ".join(f"{m.__name__} {getattr(m, '__version__', '')}".strip() for m in modules))
     return 0
 
 
@@ -288,8 +336,19 @@ def main():
     pill = StatusPill()
     controller = Controller(settings, history, pill)
 
+    # Die Aufnahme-Taste kommt aus den Einstellungen und lässt sich im Menü ändern
+    saved_key = normalise_key_name(settings["key"])
+    talk = PushToTalk(
+        controller.start_requested.emit, controller.stop_requested.emit, settings["tap_seconds"]
+    )
+    binding = KeyBinding(talk, saved_key if is_suitable_key(saved_key) else DEFAULT_KEY)
+
+    controller.key_captured.connect(
+        lambda name: handle_captured_key(name, controller, settings, binding)
+    )
+
     menu = QMenu()
-    menu.aboutToShow.connect(lambda: build_menu(menu, controller, settings, history, app))
+    menu.aboutToShow.connect(lambda: build_menu(menu, controller, settings, history, app, binding))
     tray = QSystemTrayIcon(tray_icon())
     tray.setToolTip(APP_NAME)
     tray.setContextMenu(menu)
@@ -297,7 +356,7 @@ def main():
 
     listener = None
     try:
-        listener = start_listener(controller, settings)
+        listener = start_listener(binding)
     except Exception as error:
         controller.failed.emit(f"Taste nicht verfügbar: {error}")
     controller.load_model()
