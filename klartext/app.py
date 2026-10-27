@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Klartext: Taste halten, sprechen, loslassen. Der aufgeräumte Text erscheint dort, wo du schreibst."""
+import multiprocessing
 import subprocess
 import sys
 import threading
@@ -23,6 +24,7 @@ from overlay import BLUE, GREEN, ORANGE, RED, StatusPill
 from pipeline import finalize
 from resources import resource_path
 from settings import APP_NAME, Settings, load_api_key, save_api_key, support_dir
+from single_instance import SingleInstance
 
 KEY_NAMES = {
     "alt_r": "Rechte Option",
@@ -240,9 +242,29 @@ def selftest():
     return 0
 
 
+def selftest_model():
+    """Lädt das kleinste Sprachmodell und erkennt eine Sekunde Stille. Prüft den Download und den Start von Hilfsprozessen."""
+    import numpy
+
+    from engine import Transcriber
+
+    transcriber = Transcriber("tiny")
+    transcriber.load()
+    text = transcriber.transcribe(numpy.zeros(16000, dtype="float32"), "de")
+    print("Modellprüfung ok, erkannt:", repr(text))
+    return 0
+
+
 def main():
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    if "--selftest-model" in sys.argv:
+        sys.exit(selftest_model())
+    # Sicherung: läuft schon eine Kopie, beendet sich diese sofort, statt sich zu vervielfachen
+    instance = SingleInstance("klartext")
+    if not instance.acquire():
+        print("Klartext läuft bereits.")
+        sys.exit(0)
     app = QApplication(sys.argv)
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
@@ -276,4 +298,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # In der gepackten App muss das als Erstes laufen: Hilfsprozesse der Bibliotheken starten sonst
+    # jedes Mal eine komplette neue Kopie der App.
+    multiprocessing.freeze_support()
     main()

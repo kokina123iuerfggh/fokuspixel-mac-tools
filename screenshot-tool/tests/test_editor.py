@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QApplication
 from cursor_highlight import MAX_RADIUS, MIN_RADIUS, SIZE, CursorHighlight
 from editor import Canvas, EditorWindow
 from magnifier import DIAMETER, MagnifierLens
+from single_instance import SingleInstance
 
 app = QApplication.instance() or QApplication([])
 
@@ -277,6 +278,19 @@ class MagnifierTest(unittest.TestCase):
             x, y = lens.lens_position(cursor, screen)
             captured = QRect(cursor.x() - side // 2, cursor.y() - side // 2, side, side)
             self.assertFalse(QRect(x, y, DIAMETER, DIAMETER).intersects(captured), cursor)
+
+
+class StartupSafetyTest(unittest.TestCase):
+    def test_second_instance_is_refused(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first, second = SingleInstance("demo", folder), SingleInstance("demo", folder)
+            self.assertTrue(first.acquire())
+            self.assertFalse(second.acquire())
+
+    def test_freeze_support_runs_before_main(self):
+        source = (Path(__file__).resolve().parent.parent / "app.py").read_text(encoding="utf-8")
+        entry = source.split('if __name__ == "__main__":')[1]
+        self.assertLess(entry.index("multiprocessing.freeze_support()"), entry.index("main()"))
 
 
 class SaveTest(unittest.TestCase):

@@ -4,6 +4,7 @@
 Läuft als Symbol in der Menüleiste.
 """
 import argparse
+import multiprocessing
 import os
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from cursor_highlight import DEFAULT_RADIUS, PRESETS, CursorHighlight
 from editor import EditorWindow
 from magnifier import ZOOMS, MagnifierLens
 from resources import resource_path
+from single_instance import SingleInstance
 
 HOTKEY_AREA = "<ctrl>+<alt>+s"
 HOTKEY_CURSOR = "<ctrl>+<alt>+m"
@@ -110,6 +112,10 @@ def selftest():
 def main():
     if "--selftest" in sys.argv:
         sys.exit(selftest())
+    instance = SingleInstance("bildschirm-werkzeug")
+    if not instance.acquire():
+        print("Das Bildschirm-Werkzeug läuft bereits.")
+        sys.exit(0)
     args = parse_args()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
@@ -245,4 +251,5 @@ def main():
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()  # in der gepackten App als Erstes, sonst starten Hilfsprozesse neue Kopien
     main()

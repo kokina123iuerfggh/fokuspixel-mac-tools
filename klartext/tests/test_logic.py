@@ -16,6 +16,7 @@ import pipeline
 from history import History
 from hotkey import PushToTalk
 from settings import Settings, load_api_key, save_api_key
+from single_instance import SingleInstance
 
 
 class CleanupTest(unittest.TestCase):
@@ -190,6 +191,40 @@ class StorageTest(unittest.TestCase):
                 history.add(word)
             self.assertEqual([e["text"] for e in history.recent()], ["vier", "drei", "zwei"])
             self.assertEqual([e["text"] for e in History(path).recent()], ["vier", "drei", "zwei"])
+
+
+class SingleInstanceTest(unittest.TestCase):
+    def test_second_instance_is_refused_until_the_first_ends(self):
+        with tempfile.TemporaryDirectory() as folder:
+            first = SingleInstance("demo", folder)
+            second = SingleInstance("demo", folder)
+            self.assertTrue(first.acquire())
+            self.assertFalse(second.acquire())
+            first._handle.close()  # Das Ende des Prozesses gibt die Sperre frei
+            self.assertTrue(SingleInstance("demo", folder).acquire())
+
+    def test_different_names_do_not_block_each_other(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertTrue(SingleInstance("eins", folder).acquire())
+            self.assertTrue(SingleInstance("zwei", folder).acquire())
+
+
+class StartupSafetyTest(unittest.TestCase):
+    """Regressionstest: die gepackte App startete sich auf dem Mac endlos selbst neu."""
+
+    def source(self, name):
+        return (Path(__file__).resolve().parent.parent / name).read_text(encoding="utf-8")
+
+    def test_freeze_support_runs_before_main(self):
+        entry = self.source("app.py").split('if __name__ == "__main__":')[1]
+        self.assertLess(entry.index("multiprocessing.freeze_support()"), entry.index("main()"))
+
+    def test_single_instance_check_comes_before_the_window_is_created(self):
+        main = self.source("app.py").split("def main():")[1]
+        self.assertLess(main.index("instance.acquire()"), main.index("QApplication("))
+
+    def test_model_download_does_not_create_process_locks(self):
+        self.assertIn("tqdm.set_lock(threading.RLock())", self.source("engine.py"))
 
 
 if __name__ == "__main__":

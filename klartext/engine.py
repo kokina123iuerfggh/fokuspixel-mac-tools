@@ -6,12 +6,28 @@ import time
 from audio import MIN_SECONDS, SAMPLE_RATE
 
 
+def _use_thread_locks():
+    """Die Fortschrittsanzeige beim Modell-Download soll keine Prozess-Sperren anlegen.
+
+    Diese starten auf dem Mac in einer gepackten App einen Hilfsprozess, und der ruft die App erneut auf.
+    """
+    try:
+        import threading
+
+        from tqdm import tqdm
+
+        tqdm.set_lock(threading.RLock())
+    except ImportError:
+        pass
+
+
 class Transcriber:
     def __init__(self, model_name):
         self.model_name = model_name
         self.model = None
 
     def load(self):
+        _use_thread_locks()
         from faster_whisper import WhisperModel
 
         self.model = WhisperModel(self.model_name, device="auto", compute_type="int8")

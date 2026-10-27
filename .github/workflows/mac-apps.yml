@@ -43,6 +43,10 @@ jobs:
       - name: Klartext prüfen
         run: klartext/dist/Klartext.app/Contents/MacOS/Klartext --selftest
 
+      - name: Klartext prüfen (Sprachmodell laden, darf sich nicht selbst neu starten)
+        timeout-minutes: 10
+        run: klartext/dist/Klartext.app/Contents/MacOS/Klartext --selftest-model
+
       - name: Bildschirm-Werkzeug bauen
         run: bash screenshot-tool/build_app.sh
 
