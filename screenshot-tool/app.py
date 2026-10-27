@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bildschirm-Werkzeug: Screenshots aufnehmen und bearbeiten, Mauszeiger hervorheben.
+"""Bildschirm-Werkzeug: Screenshots aufnehmen und bearbeiten, Mauszeiger hervorheben, Lupe.
 
 Läuft als Symbol in der Menüleiste.
 """
@@ -10,16 +10,19 @@ import sys
 import tempfile
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, Qt, Signal
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QPixmap
+from PySide6.QtCore import QObject, QSettings, QTimer, Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon, QPixmap
 from PySide6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
 
-from cursor_highlight import CursorHighlight
+from cursor_highlight import DEFAULT_RADIUS, PRESETS, CursorHighlight
 from editor import EditorWindow
+from magnifier import ZOOMS, MagnifierLens
 from resources import resource_path
 
 HOTKEY_AREA = "<ctrl>+<alt>+s"
 HOTKEY_CURSOR = "<ctrl>+<alt>+m"
+HOTKEY_LENS = "<ctrl>+<alt>+l"
+WHEEL_STEP = 3  # Pixel Radius pro Mausrad-Rastung
 
 
 class Bridge(QObject):
@@ -27,7 +30,9 @@ class Bridge(QObject):
 
     area_requested = Signal()
     cursor_toggle_requested = Signal()
+    lens_toggle_requested = Signal()
     mouse_pressed = Signal(bool)
+    mouse_scrolled = Signal(float)
 
 
 def parse_args():
@@ -67,6 +72,7 @@ def start_hotkeys(bridge):
             {
                 HOTKEY_AREA: bridge.area_requested.emit,
                 HOTKEY_CURSOR: bridge.cursor_toggle_requested.emit,
+                HOTKEY_LENS: bridge.lens_toggle_requested.emit,
             }
         )
         listener.start()
@@ -81,7 +87,8 @@ def start_mouse_watcher(bridge):
         from pynput import mouse
 
         listener = mouse.Listener(
-            on_click=lambda _x, _y, _button, pressed: bridge.mouse_pressed.emit(pressed)
+            on_click=lambda _x, _y, _button, pressed: bridge.mouse_pressed.emit(pressed),
+            on_scroll=lambda _x, _y, _dx, dy: bridge.mouse_scrolled.emit(float(dy)),
         )
         listener.start()
         return listener
@@ -106,12 +113,16 @@ def main():
     args = parse_args()
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
+    app.setOrganizationName("Fokus Pixel")
+    app.setApplicationName("Bildschirm-Werkzeug")
 
     if not QSystemTrayIcon.isSystemTrayAvailable():
         sys.exit("Kein Menüleistensymbol möglich.")
 
+    prefs = QSettings()
     bridge = Bridge()
-    highlight = CursorHighlight()
+    highlight = CursorHighlight(int(prefs.value("radius", DEFAULT_RADIUS)))
+    lens = MagnifierLens(float(prefs.value("zoom", 3.0)))
     editors = []
 
     def open_capture(area):
@@ -135,6 +146,26 @@ def main():
             highlight.start()
         cursor_action.setChecked(highlight.isVisible())
 
+    def toggle_lens():
+        if lens.isVisible():
+            lens.stop()
+        else:
+            lens.start()
+        lens_action.setChecked(lens.isVisible())
+
+    def set_radius(radius):
+        prefs.setValue("radius", highlight.set_radius(radius))
+
+    def set_zoom(zoom):
+        lens.set_zoom(zoom)
+        prefs.setValue("zoom", zoom)
+
+    def on_scroll(delta):
+        # Nur mit gedrückter Optionstaste, damit normales Scrollen unverändert bleibt
+        optionsdruck = QGuiApplication.queryKeyboardModifiers() & Qt.KeyboardModifier.AltModifier
+        if highlight.isVisible() and optionsdruck:
+            set_radius(highlight.radius + delta * WHEEL_STEP)
+
     menu = QMenu()
     area_action = QAction(f"Bereich aufnehmen ({HOTKEY_AREA})", menu)
     area_action.triggered.connect(lambda: request(True))
@@ -142,14 +173,53 @@ def main():
     full_action.triggered.connect(lambda: request(False))
     cursor_action = QAction(f"Mauszeiger hervorheben ({HOTKEY_CURSOR})", menu, checkable=True)
     cursor_action.triggered.connect(lambda _checked: toggle_cursor())
+
+    size_menu = QMenu("Größe des Leuchtkreises", menu)
+    size_menu.addAction("Mit Optionstaste + Mausrad stufenlos ändern").setEnabled(False)
+    size_menu.addSeparator()
+    size_group = QActionGroup(size_menu)
+    size_actions = []
+    for label, radius in PRESETS:
+        action = QAction(label, size_menu, checkable=True)
+        action.triggered.connect(lambda _c=False, r=radius: set_radius(r))
+        size_group.addAction(action)
+        size_menu.addAction(action)
+        size_actions.append((action, radius))
+
+    lens_action = QAction(f"Lupe neben dem Zeiger ({HOTKEY_LENS})", menu, checkable=True)
+    lens_action.triggered.connect(lambda _checked: toggle_lens())
+    zoom_menu = QMenu("Vergrößerung der Lupe", menu)
+    zoom_group = QActionGroup(zoom_menu)
+    zoom_actions = []
+    for label, zoom in ZOOMS:
+        action = QAction(label, zoom_menu, checkable=True)
+        action.triggered.connect(lambda _c=False, z=zoom: set_zoom(z))
+        zoom_group.addAction(action)
+        zoom_menu.addAction(action)
+        zoom_actions.append((action, zoom))
+
+    def refresh_checks():
+        for action, radius in size_actions:
+            action.setChecked(highlight.radius == radius)
+        for action, zoom in zoom_actions:
+            action.setChecked(lens.zoom == zoom)
+
     folder_action = QAction("Screenshot-Ordner öffnen", menu)
     folder_action.triggered.connect(lambda: subprocess.run(["open", args.save_dir], check=False))
     quit_action = QAction("Beenden", menu)
     quit_action.triggered.connect(app.quit)
-    for action in (area_action, full_action, cursor_action, folder_action):
-        menu.addAction(action)
+
+    menu.addAction(area_action)
+    menu.addAction(full_action)
     menu.addSeparator()
+    menu.addAction(cursor_action)
+    menu.addMenu(size_menu)
+    menu.addAction(lens_action)
+    menu.addMenu(zoom_menu)
+    menu.addSeparator()
+    menu.addAction(folder_action)
     menu.addAction(quit_action)
+    menu.aboutToShow.connect(refresh_checks)
 
     tray = QSystemTrayIcon(make_icon())
     tray.setToolTip("Bildschirm-Werkzeug")
@@ -158,7 +228,9 @@ def main():
 
     bridge.area_requested.connect(lambda: request(True))
     bridge.cursor_toggle_requested.connect(toggle_cursor)
+    bridge.lens_toggle_requested.connect(toggle_lens)
     bridge.mouse_pressed.connect(highlight.set_pressed)
+    bridge.mouse_scrolled.connect(on_scroll)
 
     listeners = []
     if not args.no_hotkeys:

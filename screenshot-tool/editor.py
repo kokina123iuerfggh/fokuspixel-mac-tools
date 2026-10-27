@@ -210,13 +210,14 @@ class Canvas(QGraphicsView):
         pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
         return pen
 
-    def _arrow_path(self, start, end):
+    def _arrow_path(self, start, end, width=None):
+        width = self.width if width is None else width
         path = QPainterPath(start)
         length = QLineF(start, end).length()
         if length < 1:
             path.lineTo(end)
             return path
-        head = min(max(18.0, self.width * 3.5), length)
+        head = min(max(18.0, width * 3.5), length)
         base = QLineF(end, start)
         base.setLength(head * 0.75)
         path.lineTo(base.p2())
@@ -233,6 +234,7 @@ class Canvas(QGraphicsView):
         return path
 
     def begin(self, pos):
+        self._scene.clearSelection()
         self._start = pos
         self._active_tool = self.tool
         tool = self.tool
@@ -284,6 +286,7 @@ class Canvas(QGraphicsView):
             item.setLine(QLineF(self._start, pos))
         elif tool == "arrow":
             item.setPath(self._arrow_path(self._start, pos))
+            item.setData(0, (QPointF(self._start), QPointF(pos)))
 
     def end(self, pos):
         item = self._current
@@ -310,6 +313,9 @@ class Canvas(QGraphicsView):
     def _finish(self, item):
         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+        # Das frisch gezeichnete Element bleibt ausgewählt, damit Farbe und Stärke es noch ändern
+        self._scene.clearSelection()
+        item.setSelected(True)
         self._push(("item", item))
 
     def _push(self, entry):
@@ -377,6 +383,45 @@ class Canvas(QGraphicsView):
 
     # --- Verlauf --------------------------------------------------------
 
+    def restyle_selected(self, color=None, width=None):
+        """Wendet neue Farbe und/oder Stärke auf die ausgewählten Markierungen an."""
+        changed = False
+        for item in self._scene.selectedItems():
+            if isinstance(item, Badge):
+                if color is not None:
+                    item.color = QColor(color)
+                if width is not None:
+                    item.prepareGeometryChange()
+                    item.diameter = max(28, int(width) * 5)
+                item.update()
+            elif isinstance(item, QGraphicsTextItem):
+                if color is not None:
+                    item.setDefaultTextColor(QColor(color))
+                if width is not None:
+                    font = item.font()
+                    font.setPointSize(max(14, int(width) * 3 + 8))
+                    item.setFont(font)
+            elif isinstance(item, QGraphicsPixmapItem) or not hasattr(item, "pen"):
+                continue
+            else:
+                pen = QPen(item.pen())
+                translucent = pen.color().alpha() < 255  # Textmarker
+                if color is not None:
+                    new_color = QColor(color)
+                    new_color.setAlpha(pen.color().alpha())
+                    pen.setColor(new_color)
+                    if item.brush().style() != Qt.BrushStyle.NoBrush:
+                        item.setBrush(QBrush(new_color))  # gefüllte Pfeilspitze
+                if width is not None:
+                    pen.setWidthF(max(14.0, width * 4.0) if translucent else float(width))
+                    ends = item.data(0)
+                    if isinstance(ends, tuple):
+                        item.setPath(self._arrow_path(ends[0], ends[1], width))
+                item.setPen(pen)
+            changed = True
+        if changed:
+            self.changed.emit()
+
     def undo(self):
         if not self._history:
             return
@@ -416,6 +461,7 @@ class Canvas(QGraphicsView):
         )
 
     def render_image(self):
+        selected = self._scene.selectedItems()
         self._scene.clearSelection()
         rect = self._scene.sceneRect()
         image = QImage(int(rect.width()), int(rect.height()), QImage.Format.Format_ARGB32)
@@ -424,6 +470,8 @@ class Canvas(QGraphicsView):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         self._scene.render(painter, QRectF(image.rect()), rect)
         painter.end()
+        for item in selected:
+            item.setSelected(True)
         return image
 
     # --- Maus -----------------------------------------------------------
@@ -449,6 +497,24 @@ class Canvas(QGraphicsView):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self.fitInView(self._scene.sceneRect(), Qt.AspectRatioMode.KeepAspectRatio)
+
+
+class StrokePreview(QWidget):
+    """Kleiner Punkt, der zeigt, wie dick und in welcher Farbe die nächste Linie wird."""
+
+    def __init__(self, canvas):
+        super().__init__()
+        self.canvas = canvas
+        self.setFixedSize(34, 34)
+        self.setToolTip("Vorschau von Farbe und Stärke")
+
+    def paintEvent(self, _event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(self.canvas.color)
+        diameter = min(30.0, max(3.0, self.canvas.width * 0.75))
+        painter.drawEllipse(QPointF(self.rect().center()), diameter / 2, diameter / 2)
 
 
 class EditorWindow(QMainWindow):
@@ -556,11 +622,14 @@ class EditorWindow(QMainWindow):
         self.slider.setRange(1, 40)
         self.slider.setValue(self.canvas.width)
         self.slider.setFixedWidth(110)
+        self.slider.setToolTip("Stärke: gilt für die nächste Zeichnung und für die markierte")
         self.slider.valueChanged.connect(self._set_width)
         self.width_label = QLabel(str(self.canvas.width))
         self.width_label.setMinimumWidth(22)
         row.addWidget(self.slider)
         row.addWidget(self.width_label)
+        self.preview = StrokePreview(self.canvas)
+        row.addWidget(self.preview)
 
         row.addStretch(1)
         for text, slot, tip in (("↶", self.canvas.undo, "Rückgängig"), ("↷", self.canvas.redo, "Wiederholen")):
@@ -599,10 +668,14 @@ class EditorWindow(QMainWindow):
 
     def set_color(self, color):
         self.canvas.color = QColor(color)
+        self.canvas.restyle_selected(color=color)
+        self.preview.update()
 
     def _set_width(self, value):
         self.canvas.width = value
         self.width_label.setText(str(value))
+        self.canvas.restyle_selected(width=value)
+        self.preview.update()
 
     def _choose_color(self):
         color = QColorDialog.getColor(self.canvas.color, self, "Farbe wählen")

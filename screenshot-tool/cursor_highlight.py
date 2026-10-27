@@ -3,12 +3,16 @@ from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor, QCursor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
-SIZE = 120
-RADIUS = 30
+MIN_RADIUS = 14
+MAX_RADIUS = 150
+DEFAULT_RADIUS = 30
+SIZE = MAX_RADIUS * 2 + 16  # Das Fenster hat immer die Größe des größten Kreises, nur der Kreis darin wächst
+
+PRESETS = [("Klein", 20), ("Mittel", 30), ("Groß", 55), ("Sehr groß", 90)]
 
 
 class CursorHighlight(QWidget):
-    def __init__(self):
+    def __init__(self, radius=DEFAULT_RADIUS):
         super().__init__(
             None,
             Qt.WindowType.FramelessWindowHint
@@ -21,10 +25,20 @@ class CursorHighlight(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self.resize(SIZE, SIZE)
+        self.radius = DEFAULT_RADIUS
+        self.set_radius(radius)
         self._pressed = False
         self._timer = QTimer(self)
         self._timer.setInterval(16)
         self._timer.timeout.connect(self._follow)
+
+    def set_radius(self, radius):
+        self.radius = int(min(MAX_RADIUS, max(MIN_RADIUS, radius)))
+        self.update()
+        return self.radius
+
+    def change_radius(self, delta):
+        return self.set_radius(self.radius + delta)
 
     def set_pressed(self, pressed):
         self._pressed = pressed
@@ -54,4 +68,4 @@ class CursorHighlight(QWidget):
         painter.setBrush(fill)
         painter.setPen(QPen(ring, 3))
         center = SIZE // 2
-        painter.drawEllipse(center - RADIUS, center - RADIUS, RADIUS * 2, RADIUS * 2)
+        painter.drawEllipse(center - self.radius, center - self.radius, self.radius * 2, self.radius * 2)

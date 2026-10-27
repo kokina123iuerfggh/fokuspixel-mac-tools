@@ -8,11 +8,13 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from PySide6.QtCore import QPointF
+from PySide6.QtCore import QPoint, QPointF, QRect
 from PySide6.QtGui import QColor, QImage, QPixmap
 from PySide6.QtWidgets import QApplication
 
+from cursor_highlight import MAX_RADIUS, MIN_RADIUS, SIZE, CursorHighlight
 from editor import Canvas, EditorWindow
+from magnifier import DIAMETER, MagnifierLens
 
 app = QApplication.instance() or QApplication([])
 
@@ -166,6 +168,115 @@ class ResourceTest(unittest.TestCase):
         logo = window.findChild(QLabel, "logo")
         self.assertIsNotNone(logo)
         self.assertFalse(logo.pixmap().isNull())
+
+
+class RestyleTest(unittest.TestCase):
+    def test_width_change_applies_to_the_selected_drawing(self):
+        canvas = Canvas(white_pixmap())
+        canvas.color = QColor("#ff0000")
+        canvas.width = 4
+        draw(canvas, "rect", (40, 40), (100, 80))
+        self.assertEqual(canvas.render_image().pixelColor(34, 60), QColor("white"))
+        canvas.restyle_selected(width=20)
+        self.assertEqual(canvas.render_image().pixelColor(34, 60), QColor("#ff0000"))
+
+    def test_color_change_applies_to_the_selected_drawing(self):
+        canvas = Canvas(white_pixmap())
+        canvas.color = QColor("#ff0000")
+        draw(canvas, "rect", (40, 40), (100, 80))
+        canvas.restyle_selected(color=QColor("#0000ff"))
+        self.assertEqual(canvas.render_image().pixelColor(40, 60), QColor("#0000ff"))
+
+    def test_only_the_newest_drawing_is_changed(self):
+        canvas = Canvas(white_pixmap())
+        canvas.color = QColor("#ff0000")
+        canvas.width = 4
+        draw(canvas, "rect", (40, 20), (60, 40))
+        draw(canvas, "rect", (40, 70), (60, 100))
+        canvas.restyle_selected(width=20)
+        image = canvas.render_image()
+        self.assertEqual(image.pixelColor(34, 30), QColor("white"))
+        self.assertEqual(image.pixelColor(34, 85), QColor("#ff0000"))
+
+    def test_arrow_head_grows_with_the_width(self):
+        canvas = Canvas(white_pixmap(300, 120))
+        canvas.width = 4
+        draw(canvas, "arrow", (20, 60), (250, 60))
+        item = canvas._history[0][1]
+        small = item.path().boundingRect().height()
+        canvas.restyle_selected(width=20)
+        self.assertGreater(item.path().boundingRect().height(), small)
+
+    def test_text_and_badge_follow_width_and_color(self):
+        canvas = Canvas(white_pixmap())
+        canvas.add_text(QPointF(10, 10), "Hallo")
+        text = canvas._history[0][1]
+        size = text.font().pointSize()
+        canvas.restyle_selected(width=30, color=QColor("#00ff00"))
+        self.assertGreater(text.font().pointSize(), size)
+        self.assertEqual(text.defaultTextColor(), QColor("#00ff00"))
+        canvas.add_badge(QPointF(100, 60))
+        badge = canvas._history[1][1]
+        canvas.restyle_selected(width=10)
+        self.assertEqual(badge.diameter, 50)
+
+    def test_render_keeps_the_selection(self):
+        canvas = Canvas(white_pixmap())
+        draw(canvas, "rect", (40, 40), (100, 80))
+        canvas.render_image()
+        self.assertEqual(len(canvas._scene.selectedItems()), 1)
+
+    def test_preview_dot_shows_the_chosen_color(self):
+        window = EditorWindow(white_pixmap(), "/tmp")
+        window.set_color(QColor("#0000ff"))
+        window.slider.setValue(30)
+        image = window.preview.grab().toImage()
+        self.assertEqual(image.pixelColor(17, 17), QColor("#0000ff"))
+
+
+class CursorHighlightTest(unittest.TestCase):
+    def test_radius_is_clamped(self):
+        highlight = CursorHighlight(30)
+        self.assertEqual(highlight.change_radius(10), 40)
+        self.assertEqual(highlight.set_radius(1000), MAX_RADIUS)
+        self.assertEqual(highlight.set_radius(-5), MIN_RADIUS)
+
+    def test_circle_grows_with_the_radius(self):
+        highlight = CursorHighlight(20)
+        center = SIZE // 2
+        self.assertEqual(highlight.grab().toImage().pixelColor(center + 60, center).alpha(), 0)
+        highlight.set_radius(100)
+        self.assertGreater(highlight.grab().toImage().pixelColor(center + 60, center).alpha(), 0)
+
+
+class MagnifierTest(unittest.TestCase):
+    def test_frame_is_drawn_inside_the_circle_only(self):
+        lens = MagnifierLens(3.0)
+        frame = QPixmap(100, 100)
+        frame.fill(QColor("#ff0000"))
+        lens.set_frame(frame)
+        image = lens.grab().toImage()
+        middle = DIAMETER // 2
+        self.assertEqual(image.pixelColor(middle + 20, middle + 20), QColor("#ff0000"))
+        self.assertEqual(image.pixelColor(1, 1).alpha(), 0)
+
+    def test_position_flips_at_the_screen_edges(self):
+        lens = MagnifierLens()
+        screen = QRect(0, 0, 1920, 1080)
+        self.assertEqual(lens.lens_position(QPoint(500, 600), screen), (570, 310))
+        x, _ = lens.lens_position(QPoint(1900, 600), screen)
+        self.assertLess(x, 1900)
+        _, y = lens.lens_position(QPoint(500, 50), screen)
+        self.assertGreater(y, 50)
+
+    def test_lens_never_overlaps_the_captured_area(self):
+        lens = MagnifierLens(2.0)
+        screen = QRect(0, 0, 1920, 1080)
+        side = int(DIAMETER / lens.zoom)
+        for cursor in (QPoint(10, 10), QPoint(1910, 10), QPoint(960, 540), QPoint(1910, 1070)):
+            x, y = lens.lens_position(cursor, screen)
+            captured = QRect(cursor.x() - side // 2, cursor.y() - side // 2, side, side)
+            self.assertFalse(QRect(x, y, DIAMETER, DIAMETER).intersects(captured), cursor)
 
 
 class SaveTest(unittest.TestCase):
