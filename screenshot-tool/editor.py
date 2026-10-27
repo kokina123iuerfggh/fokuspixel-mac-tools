@@ -10,6 +10,7 @@ from PySide6.QtGui import (
     QIcon,
     QImage,
     QKeySequence,
+    QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
@@ -54,87 +55,146 @@ ACCENT_BLUE = "#1f44ff"  # Blau aus dem Logo
 PALETTE = [ACCENT, ACCENT_BLUE, "#ff3b30", "#ff9500", "#ffd60a", "#bf5af2", "#ffffff", "#000000"]
 
 STYLE = f"""
-QMainWindow, QWidget#root {{ background: #0e0f11; }}
-QFrame#panel {{ background: #17181b; border: 1px solid #2a2b30; border-radius: 16px; }}
-QToolButton {{ background: transparent; border: none; border-radius: 8px; padding: 5px; color: #e8e8ea; font-size: 18px; }}
-QToolButton:hover {{ background: #26272c; }}
-QToolButton:checked {{ background: {ACCENT}; }}
-QPushButton {{ background: #222327; color: #e8e8ea; border: 1px solid #2f3036; border-radius: 10px; padding: 7px 16px; }}
-QPushButton:hover {{ background: #2c2d33; }}
+QMainWindow, QWidget#root {{ background: #0a0c11; }}
+QFrame#rail, QFrame#topbar {{ background: #12151c; border: 1px solid #232733; border-radius: 16px; }}
+QToolButton {{ background: transparent; border: none; border-radius: 12px; padding: 6px; color: #e8e8ea; font-size: 18px; }}
+QToolButton:hover {{ background: #1d2230; }}
+QToolButton#tool:checked {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {ACCENT_BLUE}, stop:1 {ACCENT}); }}
+QPushButton {{ background: #1a1e29; color: #e8e8ea; border: 1px solid #2a3040; border-radius: 12px; padding: 8px 16px; }}
+QPushButton:hover {{ background: #232938; }}
 QPushButton#primary {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_BLUE}, stop:1 {ACCENT}); color: #ffffff; font-weight: 600; border: none; }}
-QSlider::groove:horizontal {{ height: 3px; background: #3a3b41; border-radius: 1px; }}
-QSlider::handle:horizontal {{ background: {ACCENT}; width: 14px; height: 14px; margin: -6px 0; border-radius: 7px; }}
+QSlider::groove:horizontal {{ height: 6px; background: #232733; border-radius: 3px; }}
+QSlider::sub-page:horizontal {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {ACCENT_BLUE}, stop:1 {ACCENT}); border-radius: 3px; }}
+QSlider::handle:horizontal {{ background: #ffffff; width: 16px; height: 16px; margin: -5px 0; border-radius: 8px; }}
 QLabel {{ color: #e8e8ea; }}
-QStatusBar {{ color: #9a9ba1; }}
+QStatusBar {{ color: #8b90a0; }}
 """
 
 
+def _brand_brush(size):
+    """Farbverlauf aus dem Fokus-Pixel-Logo, von Blau nach Grün."""
+    gradient = QLinearGradient(2, 2, size - 2, size - 2)
+    gradient.setColorAt(0, QColor(ACCENT_BLUE))
+    gradient.setColorAt(1, QColor(ACCENT))
+    return QBrush(gradient)
+
+
 def tool_icon(key):
-    """Zeichnet das Symbol eines Werkzeugs, hell im Normalzustand und dunkel, wenn gewählt."""
+    """Symbol eines Werkzeugs: im Farbverlauf, und weiß auf dem Verlaufs-Hintergrund, wenn gewählt."""
     icon = QIcon()
-    for color, state in (("#e8e8ea", QIcon.State.Off), ("#1a1a1a", QIcon.State.On)):
-        icon.addPixmap(_draw_tool(key, QColor(color)), QIcon.Mode.Normal, state)
+    icon.addPixmap(_draw_tool(key, False), QIcon.Mode.Normal, QIcon.State.Off)
+    icon.addPixmap(_draw_tool(key, True), QIcon.Mode.Normal, QIcon.State.On)
     return icon
 
 
-def _draw_tool(key, color):
+def _draw_tool(key, active):
     size = 28
-    pixmap = QPixmap(size, size)
+    scale = 2  # doppelte Auflösung, damit die Symbole auf Retina-Bildschirmen scharf sind
+    pixmap = QPixmap(size * scale, size * scale)
+    pixmap.setDevicePixelRatio(scale)
     pixmap.fill(Qt.GlobalColor.transparent)
     p = QPainter(pixmap)
     p.setRenderHint(QPainter.RenderHint.Antialiasing)
-    pen = QPen(color, 2.2)
+    brush = QBrush(QColor("#ffffff")) if active else _brand_brush(size)
+    pen = QPen(brush, 2.4)
     pen.setCapStyle(Qt.PenCapStyle.RoundCap)
     pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
     p.setPen(pen)
     p.setBrush(Qt.BrushStyle.NoBrush)
-    full = QRectF(0, 0, size, size)
+
+    def dot(x, y, radius):
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
+        p.drawEllipse(QPointF(x, y), radius, radius)
+        p.restore()
+
+    def label(text, pixel_size, color=None):
+        font = QFont("Helvetica")
+        font.setBold(True)
+        font.setPixelSize(pixel_size)
+        p.setFont(font)
+        if color is not None:
+            p.setPen(color)
+        p.drawText(QRectF(0, 0, size, size), Qt.AlignmentFlag.AlignCenter, text)
+
+    def undo_shape():
+        path = QPainterPath(QPointF(20, 21))
+        path.cubicTo(25, 12, 15, 6, 9, 10)
+        p.drawPath(path)
+        p.save()
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
+        p.drawPolygon(QPolygonF([QPointF(4, 10.5), QPointF(10.5, 4.5), QPointF(12, 14)]))
+        p.restore()
+
     if key == "select":
-        p.setBrush(color)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
         p.drawPolygon(
-            QPolygonF([QPointF(8, 5), QPointF(8, 22), QPointF(12.5, 17.5), QPointF(16, 24), QPointF(18.5, 22.8), QPointF(15, 16.5), QPointF(21, 16)])
+            QPolygonF(
+                [QPointF(7, 4), QPointF(7, 22), QPointF(11.5, 18), QPointF(14.5, 24.5), QPointF(17.5, 23), QPointF(14.5, 16.8), QPointF(20.5, 16.5)]
+            )
         )
     elif key == "arrow":
-        p.drawLine(6, 22, 19, 9)
-        p.setBrush(color)
-        p.drawPolygon(QPolygonF([QPointF(23, 5), QPointF(13.5, 8), QPointF(20, 14.5)]))
+        path = QPainterPath(QPointF(5, 22))
+        path.cubicTo(8, 11, 14, 8, 20, 8)
+        p.drawPath(path)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
+        p.drawPolygon(QPolygonF([QPointF(25, 8), QPointF(18, 3.5), QPointF(18, 12.5)]))
     elif key == "line":
-        p.drawLine(6, 22, 22, 6)
+        p.drawLine(QPointF(7, 21), QPointF(21, 7))
+        dot(7, 21, 2.6)
+        dot(21, 7, 2.6)
     elif key == "rect":
-        p.drawRect(5, 8, 18, 13)
+        p.drawRoundedRect(QRectF(5, 7, 18, 14), 4, 4)
+        dot(5, 7, 2.3)
+        dot(23, 21, 2.3)
     elif key == "ellipse":
-        p.drawEllipse(4, 6, 20, 16)
+        p.drawEllipse(QPointF(13.5, 14), 9, 8)
+        dot(22.5, 14, 2.3)
     elif key == "pen":
-        p.drawLine(6, 22, 20, 8)
-        p.drawLine(17, 5, 23, 11)
+        path = QPainterPath(QPointF(4, 19))
+        path.cubicTo(8, 8, 12, 8, 14, 14)
+        path.cubicTo(16, 20, 19, 20, 24, 9)
+        p.drawPath(path)
     elif key == "marker":
-        p.drawLine(8, 17, 17, 8)
-        p.drawLine(8, 17, 6, 22)
-        p.drawLine(6, 22, 11, 20)
-        p.drawLine(15, 24, 23, 24)
+        p.save()
+        p.setOpacity(0.55)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
+        p.drawRoundedRect(QRectF(4, 8, 20, 10), 3, 3)
+        p.restore()
+        p.drawLine(QPointF(5, 23), QPointF(23, 23))
     elif key == "text":
-        font = QFont("Helvetica")
-        font.setBold(True)
-        font.setPixelSize(20)
-        p.setFont(font)
-        p.drawText(full, Qt.AlignmentFlag.AlignCenter, "T")
+        label("Aa", 15)  # der Stift trägt den Farbverlauf, daher hat auch die Schrift ihn
     elif key == "pixelate":
+        levels = [[1.0, 0.55, 1.0], [0.55, 1.0, 0.35], [1.0, 0.35, 0.7]]
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
         for row in range(3):
             for col in range(3):
-                if (row + col) % 2 == 0:
-                    p.fillRect(QRectF(5 + col * 6, 5 + row * 6, 6, 6), color)
+                p.setOpacity(levels[row][col])
+                p.drawRoundedRect(QRectF(4.5 + col * 6.6, 4.5 + row * 6.6, 5.4, 5.4), 1.3, 1.3)
+        p.setOpacity(1)
     elif key == "badge":
-        p.drawEllipse(4, 4, 20, 20)
-        font = QFont("Helvetica")
-        font.setBold(True)
-        font.setPixelSize(13)
-        p.setFont(font)
-        p.drawText(full, Qt.AlignmentFlag.AlignCenter, "1")
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(brush)
+        p.drawEllipse(QPointF(14, 14), 10, 10)
+        label("1", 14, QColor("#10131a") if active else QColor("#ffffff"))
     elif key == "crop":
         p.drawLine(9, 4, 9, 19)
         p.drawLine(9, 19, 24, 19)
         p.drawLine(4, 9, 19, 9)
         p.drawLine(19, 9, 19, 24)
+        dot(14, 14, 1.8)
+    elif key == "undo":
+        undo_shape()
+    elif key == "redo":
+        p.translate(size, 0)
+        p.scale(-1, 1)
+        undo_shape()
     p.end()
     return pixmap
 
@@ -518,18 +578,26 @@ class StrokePreview(QWidget):
 
 
 class EditorWindow(QMainWindow):
+    # (Schlüssel, Name, Taste)
     TOOLS = [
-        ("select", "Auswählen"),
-        ("arrow", "Pfeil"),
-        ("line", "Linie"),
-        ("rect", "Rahmen"),
-        ("ellipse", "Kreis"),
-        ("pen", "Stift"),
-        ("marker", "Textmarker"),
-        ("text", "Text"),
-        ("pixelate", "Verpixeln"),
-        ("badge", "Nummer"),
-        ("crop", "Zuschneiden"),
+        ("select", "Auswählen", "V"),
+        ("arrow", "Pfeil", "A"),
+        ("line", "Linie", "L"),
+        ("rect", "Rahmen", "R"),
+        ("ellipse", "Kreis", "E"),
+        ("pen", "Stift", "P"),
+        ("marker", "Textmarker", "M"),
+        ("text", "Text", "T"),
+        ("badge", "Nummer", "N"),
+        ("pixelate", "Verpixeln", "X"),
+        ("crop", "Zuschneiden", "C"),
+    ]
+    GROUPS = [
+        ["select"],
+        ["arrow", "line", "rect", "ellipse"],
+        ["pen", "marker"],
+        ["text", "badge"],
+        ["pixelate", "crop"],
     ]
 
     def __init__(self, pixmap, save_dir):
@@ -540,16 +608,20 @@ class EditorWindow(QMainWindow):
         self.save_dir = Path(save_dir)
         self.canvas = Canvas(pixmap)
         self.canvas.setFrameShape(QFrame.Shape.NoFrame)
-        self.canvas.setStyleSheet("background: #0e0f11; border: none;")
+        self.canvas.setStyleSheet("background: #0a0c11; border: none;")
         self.canvas.set_tool(self.canvas.tool)
 
         root = QWidget()
         root.setObjectName("root")
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(16, 16, 16, 12)
+        layout = QHBoxLayout(root)
+        layout.setContentsMargins(14, 14, 14, 10)
         layout.setSpacing(12)
-        layout.addWidget(self.canvas, 1)
-        layout.addWidget(self._build_panel())
+        layout.addWidget(self._build_rail())
+        column = QVBoxLayout()
+        column.setSpacing(12)
+        column.addWidget(self._build_topbar())
+        column.addWidget(self.canvas, 1)
+        layout.addLayout(column, 1)
         self.setCentralWidget(root)
 
         self._bind(QKeySequence.StandardKey.Undo, self.canvas.undo)
@@ -559,51 +631,92 @@ class EditorWindow(QMainWindow):
         self._bind(QKeySequence.StandardKey.SaveAs, self.save_as)
         self._bind(QKeySequence("Backspace"), self.canvas.delete_selected)
         self._bind(QKeySequence("Delete"), self.canvas.delete_selected)
+        for key, _name, letter in self.TOOLS:
+            self._bind(QKeySequence(letter), lambda k=key: self.set_tool(k))
 
-        self.resize(min(pixmap.width() + 60, 1500), min(pixmap.height() + 200, 950))
+        self.resize(min(pixmap.width() + 120, 1500), min(pixmap.height() + 170, 950))
 
     def _bind(self, sequence, slot):
         shortcut = QShortcut(QKeySequence(sequence), self)
         shortcut.activated.connect(slot)
 
-    def _build_panel(self):
-        panel = QFrame()
-        panel.setObjectName("panel")
-        outer = QVBoxLayout(panel)
-        outer.setContentsMargins(14, 10, 14, 10)
-        outer.setSpacing(8)
+    def _icon_button(self, icon_key, tooltip, slot):
+        button = QToolButton()
+        button.setIcon(tool_icon(icon_key))
+        button.setIconSize(QSize(26, 26))
+        button.setFixedSize(46, 46)
+        button.setToolTip(tooltip)
+        button.clicked.connect(lambda _checked=False: slot())
+        return button
 
-        row = QHBoxLayout()
-        row.setSpacing(4)
+    def _build_rail(self):
+        """Senkrechte Werkzeugleiste links, nach Aufgaben gruppiert."""
+        rail = QFrame()
+        rail.setObjectName("rail")
+        rail.setFixedWidth(66)
+        layout = QVBoxLayout(rail)
+        layout.setContentsMargins(9, 10, 9, 10)
+        layout.setSpacing(4)
+        names = {key: (name, letter) for key, name, letter in self.TOOLS}
         self._tool_group = QButtonGroup(self)
         self._tool_group.setExclusive(True)
         self.tool_buttons = {}
-        for key, label in self.TOOLS:
-            button = QToolButton()
-            button.setCheckable(True)
-            button.setToolTip(label)
-            button.setIcon(tool_icon(key))
-            button.setIconSize(QSize(26, 26))
-            button.clicked.connect(lambda _checked=False, k=key: self.set_tool(k))
-            self._tool_group.addButton(button)
-            self.tool_buttons[key] = button
-            row.addWidget(button)
-            if key == self.canvas.tool:
-                button.setChecked(True)
+        for index, group in enumerate(self.GROUPS):
+            if index:
+                line = QFrame()
+                line.setFixedHeight(1)
+                line.setStyleSheet("background: #232733; border: none;")
+                layout.addSpacing(4)
+                layout.addWidget(line)
+                layout.addSpacing(4)
+            for key in group:
+                name, letter = names[key]
+                button = QToolButton()
+                button.setObjectName("tool")
+                button.setCheckable(True)
+                button.setIcon(tool_icon(key))
+                button.setIconSize(QSize(26, 26))
+                button.setFixedSize(46, 46)
+                button.setToolTip(f"{name} ({letter})")
+                button.clicked.connect(lambda _checked=False, k=key: self.set_tool(k))
+                self._tool_group.addButton(button)
+                self.tool_buttons[key] = button
+                layout.addWidget(button)
+                if key == self.canvas.tool:
+                    button.setChecked(True)
+        layout.addStretch(1)
+        layout.addWidget(self._icon_button("undo", "Rückgängig (⌘Z)", self.canvas.undo))
+        layout.addWidget(self._icon_button("redo", "Wiederholen (⇧⌘Z)", self.canvas.redo))
+        return rail
 
-        row.addSpacing(12)
+    def _build_topbar(self):
+        """Obere Leiste: Logo, Farben, Stärke und die Knöpfe zum Beenden."""
+        bar = QFrame()
+        bar.setObjectName("topbar")
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(14, 8, 14, 8)
+        row.setSpacing(8)
+
+        logo = QLabel()
+        logo.setObjectName("logo")
+        logo_pixmap = QPixmap(str(resource_path("assets/logo.png")))
+        if not logo_pixmap.isNull():
+            logo.setPixmap(logo_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation))
+        row.addWidget(logo)
+        row.addSpacing(10)
+
         self._swatch_group = QButtonGroup(self)
         self._swatch_group.setExclusive(True)
         self.swatches = []
         for color in PALETTE:
             swatch = QToolButton()
             swatch.setCheckable(True)
-            swatch.setFixedSize(24, 24)
+            swatch.setFixedSize(26, 26)
             swatch.setToolTip(color)
             swatch.setStyleSheet(
-                f"QToolButton {{ background: {color}; border: 2px solid #17181b; border-radius: 12px; padding: 0; }}"
-                "QToolButton:hover { border: 2px solid #9a9ba1; }"
-                "QToolButton:checked { border: 2px solid #e8e8ea; }"
+                f"QToolButton {{ background: {color}; border: 2px solid #12151c; border-radius: 8px; padding: 0; }}"
+                "QToolButton:hover { border: 2px solid #8b90a0; }"
+                "QToolButton:checked { border: 2px solid #ffffff; }"
             )
             swatch.clicked.connect(lambda _checked=False, c=color: self.set_color(QColor(c)))
             self._swatch_group.addButton(swatch)
@@ -617,50 +730,41 @@ class EditorWindow(QMainWindow):
         custom.clicked.connect(self._choose_color)
         row.addWidget(custom)
 
-        row.addSpacing(12)
+        row.addSpacing(14)
+        minus = QToolButton()
+        minus.setText("−")
+        minus.setToolTip("Dünner")
+        plus = QToolButton()
+        plus.setText("+")
+        plus.setToolTip("Dicker")
         self.slider = QSlider(Qt.Orientation.Horizontal)
         self.slider.setRange(1, 40)
         self.slider.setValue(self.canvas.width)
-        self.slider.setFixedWidth(110)
+        self.slider.setFixedWidth(130)
         self.slider.setToolTip("Stärke: gilt für die nächste Zeichnung und für die markierte")
         self.slider.valueChanged.connect(self._set_width)
+        minus.clicked.connect(lambda _checked=False: self.slider.setValue(self.slider.value() - 1))
+        plus.clicked.connect(lambda _checked=False: self.slider.setValue(self.slider.value() + 1))
         self.width_label = QLabel(str(self.canvas.width))
         self.width_label.setMinimumWidth(22)
-        row.addWidget(self.slider)
-        row.addWidget(self.width_label)
         self.preview = StrokePreview(self.canvas)
-        row.addWidget(self.preview)
+        for widget in (minus, self.slider, plus, self.width_label, self.preview):
+            row.addWidget(widget)
 
         row.addStretch(1)
-        for text, slot, tip in (("↶", self.canvas.undo, "Rückgängig"), ("↷", self.canvas.redo, "Wiederholen")):
-            button = QToolButton()
-            button.setText(text)
-            button.setToolTip(tip)
-            button.clicked.connect(lambda _checked=False, s=slot: s())
-            row.addWidget(button)
-        outer.addLayout(row)
-
-        bottom = QHBoxLayout()
-        logo = QLabel()
-        logo.setObjectName("logo")
-        logo_pixmap = QPixmap(str(resource_path("assets/logo.png")))
-        if not logo_pixmap.isNull():
-            logo.setPixmap(
-                logo_pixmap.scaledToHeight(52, Qt.TransformationMode.SmoothTransformation)
-            )
-        bottom.addWidget(logo)
-        bottom.addStretch(1)
-        discard = QPushButton("Verwerfen")
-        discard.clicked.connect(self.close)
+        close = QPushButton("Schließen")
+        close.setToolTip("Ohne Speichern schließen")
+        close.clicked.connect(self.close)
         copy = QPushButton("Kopieren")
+        copy.setToolTip("In die Zwischenablage (⌘C)")
         copy.clicked.connect(self.copy_to_clipboard)
-        save = QPushButton("Sichern")
+        save = QPushButton("Speichern")
         save.setObjectName("primary")
+        save.setToolTip("Als PNG speichern (⌘S)")
         save.clicked.connect(self.save)
-        for button in (discard, copy, save):
-            bottom.addWidget(button)
-        outer.addLayout(bottom)
-        return panel
+        for button in (close, copy, save):
+            row.addWidget(button)
+        return bar
 
     def set_tool(self, key):
         self.canvas.set_tool(key)
