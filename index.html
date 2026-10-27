@@ -73,6 +73,8 @@
     color: #d6d7da;
   }
   code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.92em; }
+  details { margin-top: 18px; color: var(--muted); }
+  summary { cursor: pointer; color: var(--text); font-weight: 600; }
   .note {
     border-left: 3px solid var(--blue);
     background: var(--panel);
@@ -105,7 +107,7 @@
         <li>Schwebende Statusanzeige und Verlauf der letzten Diktate</li>
       </ul>
       <div class="actions">
-        <a class="btn primary" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/archive/refs/heads/main.zip">ZIP herunterladen</a>
+        <a class="btn primary" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/releases/latest/download/Klartext-macOS-arm64.zip">Für Mac laden</a>
         <a class="btn" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/tree/main/klartext">Anleitung</a>
       </div>
     </article>
@@ -123,28 +125,34 @@
         <li>Tastenkürzel direkt aus der Menüleiste</li>
       </ul>
       <div class="actions">
-        <a class="btn primary" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/archive/refs/heads/main.zip">ZIP herunterladen</a>
+        <a class="btn primary" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/releases/latest/download/Bildschirm-Werkzeug-macOS-arm64.zip">Für Mac laden</a>
         <a class="btn" href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/tree/main/screenshot-tool">Anleitung</a>
       </div>
     </article>
   </div>
 
   <section>
-    <h3>So bekommst du eine App daraus</h3>
+    <h3>So installierst du die App</h3>
     <ol>
-      <li>ZIP herunterladen und im Finder entpacken.</li>
-      <li>Den gewünschten Ordner (<code>klartext</code> oder <code>screenshot-tool</code>) in deinen <strong>Benutzerordner</strong> ziehen. Aus „Downloads“ darf das Terminal ihn nicht lesen.</li>
-      <li>Im Programm <strong>Terminal</strong> den Ordner öffnen und das Bauskript starten:
-        <pre>cd ~/klartext
-bash build_app.sh</pre>
+      <li>Oben bei der gewünschten App auf <strong>Für Mac laden</strong> klicken. Die Apps laufen auf Macs mit Apple-Chip (M1 und neuer).</li>
+      <li>Die heruntergeladene ZIP-Datei mit einem Doppelklick öffnen und die App in den Ordner <strong>Programme</strong> ziehen.</li>
+      <li>App starten. macOS meldet beim ersten Mal, dass sie nicht geprüft werden konnte, weil sie nicht von Apple beglaubigt ist. Auf <strong>Fertig</strong> klicken, dann in den Systemeinstellungen unter <em>Datenschutz &amp; Sicherheit</em> ganz unten bei der App auf <strong>Trotzdem öffnen</strong> klicken.
+        Falls dort nichts erscheint, hilft dieser Befehl im Programm <strong>Terminal</strong>:
+        <pre>xattr -dr com.apple.quarantine /Applications/Klartext.app</pre>
       </li>
-      <li>Die fertige App liegt im Unterordner <code>dist</code>. In den Ordner <strong>Programme</strong> ziehen und beim ersten Start mit Rechtsklick auf <strong>Öffnen</strong> starten.</li>
-      <li>In den Systemeinstellungen unter <em>Datenschutz &amp; Sicherheit</em> die Berechtigungen erteilen (Mikrofon, Bedienungshilfen, Eingabeüberwachung, Bildschirmaufnahme) und die App neu starten.</li>
+      <li>In den Systemeinstellungen unter <em>Datenschutz &amp; Sicherheit</em> die Berechtigungen erteilen (Klartext: Mikrofon, Bedienungshilfen, Eingabeüberwachung; Bildschirm-Werkzeug: Bildschirmaufnahme, Eingabeüberwachung) und die App neu starten.</li>
     </ol>
+    <details>
+      <summary>Selbst bauen (für Entwickler)</summary>
+      <p>Den <a href="https://github.com/kokina123iuerfggh/fokuspixel-mac-tools/archive/refs/heads/main.zip">Quellcode als ZIP</a> laden, den Ordner <code>klartext</code> oder <code>screenshot-tool</code> in den Benutzerordner legen und dort ausführen:</p>
+      <pre>cd ~/klartext
+bash build_app.sh</pre>
+      <p>Python 3.12 ist dafür am sichersten (<code>brew install python@3.12</code>).</p>
+    </details>
   </section>
 
   <section class="note">
-    Die Werkzeuge sind neu und wurden ohne Mac entwickelt. Die Logik ist mit automatischen Tests geprüft, Mikrofon, Tastenkürzel und App-Bau sind auf dem Mac noch im Test. Die Apps sind nicht von Apple signiert, deshalb die Rückfrage beim ersten Start. Python 3.12 oder 3.13 ist für Klartext am sichersten.
+    Die Werkzeuge sind neu und wurden ohne Mac entwickelt. Die Logik ist mit automatischen Tests geprüft, Mikrofon, Tastenkürzel und App-Bau sind auf dem Mac noch im Test. Die Apps sind nicht von Apple signiert, deshalb die Rückfrage beim ersten Start. Die Apps sind für Macs mit Apple-Chip gebaut.
   </section>
 </main>
 
