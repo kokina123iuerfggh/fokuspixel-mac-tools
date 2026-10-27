@@ -1,0 +1,196 @@
+"""Tests der Logik ohne Mikrofon und Oberfläche: python -m unittest discover -s tests"""
+import io
+import json
+import os
+import sys
+import tempfile
+import unittest
+import urllib.error
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+import cleanup
+import llm
+import pipeline
+from history import History
+from hotkey import PushToTalk
+from settings import Settings, load_api_key, save_api_key
+
+
+class CleanupTest(unittest.TestCase):
+    def test_german_fillers_and_comma(self):
+        self.assertEqual(
+            cleanup.clean("Ähm, ich glaube, äh, dass wir morgen kommen.", "de"),
+            "Ich glaube, dass wir morgen kommen.",
+        )
+
+    def test_german_um_is_kept(self):
+        self.assertEqual(cleanup.clean("Wir treffen uns um zehn Uhr.", "de"), "Wir treffen uns um zehn Uhr.")
+
+    def test_english_fillers_and_repetition(self):
+        self.assertEqual(
+            cleanup.clean("the the launch is um uh gonna slip", "en"), "The launch is gonna slip"
+        )
+
+    def test_repetition_german(self):
+        self.assertEqual(cleanup.clean("ich ich möchte das das Buch", "de"), "Ich möchte das Buch")
+
+    def test_spacing_and_sentence_start(self):
+        self.assertEqual(cleanup.clean("hallo , wie geht's ?  gut. danke", "de"), "Hallo, wie geht's? Gut. Danke")
+
+    def test_dictionary_and_snippets(self):
+        text = cleanup.clean(
+            "ich nutze claude code und schicke meine mail",
+            "de",
+            dictionary={"claude code": "Claude Code"},
+            snippets={"meine mail": "max@example.com"},
+        )
+        self.assertEqual(text, "Ich nutze Claude Code und schicke max@example.com")
+
+    def test_dictionary_matches_whole_words_only(self):
+        self.assertEqual(cleanup.apply_replacements("Katze katzen", {"katze": "Tiger"}), "Tiger katzen")
+
+    def test_auto_language_uses_safe_fillers_only(self):
+        self.assertEqual(cleanup.clean("wir treffen uns um acht äh", None), "Wir treffen uns um acht")
+
+
+class FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class LlmTest(unittest.TestCase):
+    def test_request_has_key_model_and_wrapped_text(self):
+        seen = {}
+
+        def opener(request, timeout):
+            seen["headers"] = {k.lower(): v for k, v in request.header_items()}
+            seen["body"] = json.loads(request.data)
+            body = {"content": [{"type": "text", "text": "  Sauberer Text.  "}]}
+            return FakeResponse(json.dumps(body).encode())
+
+        result = llm.polish("äh hallo", "sk-test", "formell", "de", opener=opener)
+        self.assertEqual(result, "Sauberer Text.")
+        self.assertEqual(seen["headers"]["x-api-key"], "sk-test")
+        self.assertEqual(seen["body"]["model"], llm.MODEL)
+        self.assertEqual(seen["body"]["messages"][0]["content"], "<diktat>äh hallo</diktat>")
+        self.assertIn("formell", seen["body"]["system"])
+
+    def test_network_error_returns_none(self):
+        def opener(request, timeout):
+            raise urllib.error.URLError("offline")
+
+        self.assertIsNone(llm.polish("hallo", "sk-test", opener=opener))
+
+    def test_invalid_json_returns_none(self):
+        self.assertIsNone(llm.polish("hallo", "k", opener=lambda r, timeout: FakeResponse(b"nope")))
+
+
+class PipelineTest(unittest.TestCase):
+    def run_pipeline(self, mode, polisher=None, key="k", raw="äh hallo welt"):
+        return pipeline.finalize(
+            raw, "de", mode, "neutral", {"welt": "Welt"}, {}, key, polisher=polisher or (lambda *a: None)
+        )
+
+    def test_empty_text(self):
+        self.assertEqual(self.run_pipeline("regeln", raw="   "), "")
+
+    def test_rules_mode(self):
+        self.assertEqual(self.run_pipeline("regeln"), "Hallo Welt")
+
+    def test_off_mode_keeps_fillers_but_applies_dictionary(self):
+        self.assertEqual(self.run_pipeline("aus"), "äh hallo Welt")
+
+    def test_claude_mode_uses_polished_text(self):
+        self.assertEqual(self.run_pipeline("claude", polisher=lambda *a: "Hallo welt."), "Hallo Welt.")
+
+    def test_claude_mode_falls_back_to_rules(self):
+        self.assertEqual(self.run_pipeline("claude", polisher=lambda *a: None), "Hallo Welt")
+
+    def test_claude_mode_without_key_uses_rules(self):
+        self.assertEqual(self.run_pipeline("claude", key=""), "Hallo Welt")
+
+
+class PushToTalkTest(unittest.TestCase):
+    def setUp(self):
+        self.now = 0.0
+        self.events = []
+        self.talk = PushToTalk(
+            lambda: self.events.append("start"),
+            lambda: self.events.append("stop"),
+            tap_seconds=0.3,
+            clock=lambda: self.now,
+        )
+
+    def test_hold_to_talk(self):
+        self.talk.press()
+        self.now = 2.0
+        self.talk.release()
+        self.assertEqual(self.events, ["start", "stop"])
+
+    def test_tap_starts_handsfree_until_next_press(self):
+        self.talk.press()
+        self.now = 0.1
+        self.talk.release()
+        self.assertEqual(self.events, ["start"])
+        self.now = 5.0
+        self.talk.press()
+        self.talk.release()
+        self.assertEqual(self.events, ["start", "stop"])
+        self.assertEqual(self.talk.state, "idle")
+
+    def test_key_repeat_is_ignored(self):
+        self.talk.press()
+        self.talk.press()
+        self.talk.press()
+        self.assertEqual(self.events, ["start"])
+
+
+class StorageTest(unittest.TestCase):
+    def test_settings_roundtrip_and_defaults(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "config.json"
+            settings = Settings(path)
+            self.assertEqual(settings["model"], "small")
+            settings["language"] = "en"
+            settings["dictionary"] = {"x": "y"}
+            again = Settings(path)
+            self.assertEqual(again["language"], "en")
+            self.assertEqual(again.dictionary_words(), ["y"])
+            self.assertEqual(again["cleanup"], "regeln")
+
+    def test_broken_settings_file_falls_back_to_defaults(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "config.json"
+            path.write_text("{kaputt", encoding="utf-8")
+            self.assertEqual(Settings(path)["model"], "small")
+
+    def test_api_key_file_is_private(self):
+        with tempfile.TemporaryDirectory() as folder:
+            old = os.environ.pop("ANTHROPIC_API_KEY", None)
+            try:
+                self.assertEqual(load_api_key(folder), "")
+                save_api_key("  sk-abc \n", folder)
+                self.assertEqual(load_api_key(folder), "sk-abc")
+                mode = (Path(folder) / "api_key.txt").stat().st_mode & 0o777
+                self.assertEqual(mode, 0o600)
+            finally:
+                if old is not None:
+                    os.environ["ANTHROPIC_API_KEY"] = old
+
+    def test_history_keeps_newest_first_and_limit(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "history.json"
+            history = History(path, limit=3)
+            for word in ("eins", "zwei", "drei", "vier"):
+                history.add(word)
+            self.assertEqual([e["text"] for e in history.recent()], ["vier", "drei", "zwei"])
+            self.assertEqual([e["text"] for e in History(path).recent()], ["vier", "drei", "zwei"])
+
+
+if __name__ == "__main__":
+    unittest.main()

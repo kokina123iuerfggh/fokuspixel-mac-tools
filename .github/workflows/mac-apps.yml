@@ -1,0 +1,63 @@
+name: Mac-Apps bauen
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Klartext testen
+        run: python -m unittest discover -s klartext/tests -v
+
+  build:
+    needs: tests
+    # Gebaut wird nur für ein Release (Tag v...) oder auf Knopfdruck, nicht bei jedem Push
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    runs-on: macos-14 # Apple Silicon (M1 und neuer)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Klartext bauen
+        run: bash klartext/build_app.sh
+
+      - name: Klartext prüfen
+        run: klartext/dist/Klartext.app/Contents/MacOS/Klartext --selftest
+
+      - name: Bildschirm-Werkzeug bauen
+        run: bash screenshot-tool/build_app.sh
+
+      - name: Bildschirm-Werkzeug prüfen
+        run: screenshot-tool/dist/Bildschirm-Werkzeug.app/Contents/MacOS/Bildschirm-Werkzeug --selftest
+
+      - name: ZIP-Dateien packen
+        run: |
+          mkdir release
+          ditto -c -k --keepParent klartext/dist/Klartext.app release/Klartext-macOS-arm64.zip
+          ditto -c -k --keepParent screenshot-tool/dist/Bildschirm-Werkzeug.app release/Bildschirm-Werkzeug-macOS-arm64.zip
+          ls -lh release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac-apps
+          path: release/*.zip
+
+      - name: Release veröffentlichen
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" release/*.zip --title "$GITHUB_REF_NAME" --generate-notes
