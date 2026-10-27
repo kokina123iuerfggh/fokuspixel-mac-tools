@@ -26,8 +26,14 @@ UNSUITABLE = {
     "home", "end", "page_up", "page_down", "caps_lock", "insert",
 }
 
+# So lange nach dem Einfügen werden Tastendrücke ignoriert: Das Einfügen drückt selbst Cmd+V,
+# und das darf keine Aufnahme starten, wenn die Befehlstaste die Aufnahme-Taste ist.
+PASTE_MUTE_SECONDS = 0.5
+
 
 def normalise_key_name(name):
+    if not isinstance(name, str):
+        return ""
     return ALIASES.get(name, name)
 
 
@@ -37,11 +43,30 @@ def key_name(key):
 
 
 def is_suitable_key(name):
-    return bool(name) and normalise_key_name(name) not in UNSUITABLE
+    name = normalise_key_name(name)
+    return bool(name) and name not in UNSUITABLE
+
+
+def is_known_key(name):
+    """Kennt pynput die Taste? Ohne pynput (zum Beispiel in Tests) wird nicht geprüft."""
+    name = normalise_key_name(name)
+    if not name:
+        return False
+    try:
+        from pynput import keyboard
+    except Exception:
+        return True
+    return hasattr(keyboard.Key, name)
+
+
+def is_valid_key(name):
+    return is_suitable_key(name) and is_known_key(name)
 
 
 def display_name(name):
     name = normalise_key_name(name)
+    if not name:
+        return "Keine"
     return DISPLAY_NAMES.get(name, name.upper().replace("_", " "))
 
 
@@ -82,14 +107,21 @@ class PushToTalk:
         if was_active:
             self.on_stop()
 
+    def reset(self):
+        """Setzt den Zustand zurück, ohne on_stop aufzurufen (die Aufnahme hatte gar nicht begonnen)."""
+        self.state = "idle"
+
 
 class KeyBinding:
     """Verbindet die gewählte Taste mit der Aufnahmelogik. Die Taste lässt sich zur Laufzeit ändern."""
 
-    def __init__(self, talk, key=DEFAULT_KEY):
+    def __init__(self, talk, key=DEFAULT_KEY, clock=time.monotonic):
         self.talk = talk
         self.key = normalise_key_name(key)
+        self.clock = clock
         self._capture = None
+        self._capture_token = 0
+        self._muted_until = 0.0
 
     @property
     def capturing(self):
@@ -99,23 +131,40 @@ class KeyBinding:
         self.talk.cancel()
         self.key = normalise_key_name(name)
 
-    def capture_next(self, callback):
-        """Der nächste Tastendruck wird nicht zum Aufnehmen genutzt, sondern an callback(name) gemeldet."""
-        self._capture = callback
+    def mute(self, seconds=PASTE_MUTE_SECONDS):
+        """Ignoriert Tastendrücke kurz, zum Beispiel während die App selbst Cmd+V drückt."""
+        self._muted_until = self.clock() + seconds
 
-    def cancel_capture(self):
-        was_capturing = self._capture is not None
+    def capture_next(self, callback):
+        """Der nächste Tastendruck wird nicht zum Aufnehmen genutzt, sondern an callback(name) gemeldet.
+
+        Gibt eine Nummer zurück, mit der sich genau diese Erfassung wieder abbrechen lässt.
+        """
+        self._capture = callback
+        self._capture_token += 1
+        return self._capture_token
+
+    def cancel_capture(self, token=None):
+        """Bricht die Erfassung ab. Mit Nummer nur dann, wenn es noch dieselbe Erfassung ist."""
+        if self._capture is None:
+            return False
+        if token is not None and token != self._capture_token:
+            return False
         self._capture = None
-        return was_capturing
+        return True
 
     def press(self, name):
         if self._capture is not None:
             callback, self._capture = self._capture, None
-            callback(normalise_key_name(name) if name else None)
+            callback(normalise_key_name(name) or None)
+            return
+        if self.clock() < self._muted_until:
             return
         if name and normalise_key_name(name) == self.key:
             self.talk.press()
 
     def release(self, name):
+        if self.clock() < self._muted_until:
+            return
         if name and normalise_key_name(name) == self.key:
             self.talk.release()

@@ -355,7 +355,12 @@ class Canvas(QGraphicsView):
         tool = self._active_tool
         self.drag(pos)
         self._current = None
-        too_small = (pos - self._start).manhattanLength() < MIN_DRAG
+        if tool in ("pen", "marker"):
+            # Ein Kreis endet, wo er begann. Deshalb zählt die Ausdehnung des Strichs, nicht der Abstand.
+            size = self._path.boundingRect()
+            too_small = max(size.width(), size.height()) < MIN_DRAG
+        else:
+            too_small = (pos - self._start).manhattanLength() < MIN_DRAG
         if tool in ("pixelate", "crop"):
             self._scene.removeItem(item)
             if not too_small:
@@ -371,11 +376,12 @@ class Canvas(QGraphicsView):
         self._finish(item)
 
     def _finish(self, item):
-        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        # Das frisch gezeichnete Element bleibt ausgewählt, damit Farbe und Stärke es noch ändern
         self._scene.clearSelection()
-        item.setSelected(True)
+        if not isinstance(item, QGraphicsPixmapItem):  # Verpixelung darf nicht verschoben werden
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+            item.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
+            # Das frisch gezeichnete Element bleibt ausgewählt, damit Farbe und Stärke es noch ändern
+            item.setSelected(True)
         self._push(("item", item))
 
     def _push(self, entry):
@@ -395,10 +401,13 @@ class Canvas(QGraphicsView):
         self._finish(item)
 
     def add_badge(self, pos):
-        number = 1 + sum(
-            1
-            for entry in self._history
-            if entry[0] == "item" and isinstance(entry[1], Badge) and entry[1].scene() is not None
+        number = 1 + max(
+            (
+                entry[1].number
+                for entry in self._history
+                if entry[0] == "item" and isinstance(entry[1], Badge) and entry[1].scene() is not None
+            ),
+            default=0,
         )
         badge = Badge(number, self.color, max(28, int(self.width) * 5))
         badge.setPos(pos)

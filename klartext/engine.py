@@ -12,8 +12,6 @@ def _use_thread_locks():
     Diese starten auf dem Mac in einer gepackten App einen Hilfsprozess, und der ruft die App erneut auf.
     """
     try:
-        import threading
-
         from tqdm import tqdm
 
         tqdm.set_lock(threading.RLock())

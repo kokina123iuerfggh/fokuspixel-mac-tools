@@ -21,8 +21,13 @@ SYSTEM = (
 )
 
 
+LANGUAGE_NAMES = {"de": "Deutsch", "en": "Englisch", "fr": "Französisch", "es": "Spanisch"}
+
+
 def build_request(text, style="neutral", language="de"):
     hint = STYLES.get(style, STYLES["neutral"])
+    if language in LANGUAGE_NAMES:
+        hint += f" Der Text ist auf {LANGUAGE_NAMES[language]}, antworte in dieser Sprache."
     return {
         "model": MODEL,
         "max_tokens": min(4096, 200 + len(text) * 2),
@@ -47,6 +52,9 @@ def polish(text, api_key, style="neutral", language="de", opener=urllib.request.
             data = json.load(response)
     except (urllib.error.URLError, TimeoutError, ValueError, OSError):
         return None
-    parts = [block.get("text", "") for block in data.get("content", []) if block.get("type") == "text"]
-    result = "".join(parts).strip()
+    try:
+        parts = [block["text"] for block in data["content"] if block.get("type") == "text"]
+        result = "".join(parts).strip()
+    except (AttributeError, KeyError, TypeError):  # Antwort hat nicht die erwartete Form
+        return None
     return result or None

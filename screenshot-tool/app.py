@@ -142,7 +142,9 @@ def main():
         if pixmap is None:
             return
         window = EditorWindow(pixmap, args.save_dir)
-        editors.append(window)
+        window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        editors.append(window)  # Verweis halten, solange das Fenster offen ist
+        window.destroyed.connect(lambda _obj=None, w=window: w in editors and editors.remove(w))
         window.show()
         window.raise_()
         window.activateWindow()
@@ -151,9 +153,16 @@ def main():
         # Kurz warten, damit das Menü verschwunden ist
         QTimer.singleShot(250, lambda: open_capture(area))
 
+    paused_highlight = {"on": False}
+
     def toggle_cursor():
         if highlight.isVisible():
             highlight.stop()
+            paused_highlight["on"] = False
+        elif lens.isVisible():
+            paused_highlight["on"] = True  # erscheint wieder, sobald die Lupe aus ist
+            cursor_action.setChecked(True)
+            return
         else:
             highlight.start()
         cursor_action.setChecked(highlight.isVisible())
@@ -161,9 +170,18 @@ def main():
     def toggle_lens():
         if lens.isVisible():
             lens.stop()
+            if paused_highlight["on"]:
+                paused_highlight["on"] = False
+                highlight.start()
         else:
+            # Der Leuchtkreis liegt genau dort, wo die Lupe hinschaut. Solange die Lupe an ist,
+            # pausiert er, sonst zeigt die Lupe nur den vergrößerten Kreis.
+            if highlight.isVisible():
+                highlight.stop()
+                paused_highlight["on"] = True
             lens.start()
         lens_action.setChecked(lens.isVisible())
+        cursor_action.setChecked(highlight.isVisible())
 
     def set_radius(radius):
         prefs.setValue("radius", highlight.set_radius(radius))
@@ -176,7 +194,7 @@ def main():
         # Nur mit gedrückter Optionstaste, damit normales Scrollen unverändert bleibt
         optionsdruck = QGuiApplication.queryKeyboardModifiers() & Qt.KeyboardModifier.AltModifier
         if highlight.isVisible() and optionsdruck:
-            set_radius(highlight.radius + delta * WHEEL_STEP)
+            prefs.setValue("radius", highlight.change_radius(delta * WHEEL_STEP))
 
     menu = QMenu()
     area_action = QAction(f"Bereich aufnehmen ({HOTKEY_AREA})", menu)
@@ -198,7 +216,7 @@ def main():
         size_menu.addAction(action)
         size_actions.append((action, radius))
 
-    lens_action = QAction(f"Lupe neben dem Zeiger ({HOTKEY_LENS})", menu, checkable=True)
+    lens_action = QAction(f"Lupe neben dem Zeiger ({HOTKEY_LENS}), pausiert den Leuchtkreis", menu, checkable=True)
     lens_action.triggered.connect(lambda _checked: toggle_lens())
     zoom_menu = QMenu("Vergrößerung der Lupe", menu)
     zoom_group = QActionGroup(zoom_menu)

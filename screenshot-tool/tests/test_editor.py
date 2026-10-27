@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from PySide6.QtCore import QPoint, QPointF, QRect
 from PySide6.QtGui import QColor, QImage, QPixmap
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QGraphicsItem
 
 from cursor_highlight import MAX_RADIUS, MIN_RADIUS, SIZE, CursorHighlight
 from editor import Canvas, EditorWindow
@@ -291,6 +291,45 @@ class StartupSafetyTest(unittest.TestCase):
         source = (Path(__file__).resolve().parent.parent / "app.py").read_text(encoding="utf-8")
         entry = source.split('if __name__ == "__main__":')[1]
         self.assertLess(entry.index("multiprocessing.freeze_support()"), entry.index("main()"))
+
+
+class ReviewFixesTest(unittest.TestCase):
+    """Regressionstests für Fehler aus der Code-Prüfung."""
+
+    def test_pen_loop_that_ends_at_its_start_is_kept(self):
+        canvas = Canvas(white_pixmap())
+        canvas.tool = "pen"
+        canvas.begin(QPointF(50, 50))
+        for point in ((120, 50), (120, 100), (50, 100), (51, 51)):
+            canvas.drag(QPointF(*point))
+        canvas.end(QPointF(51, 51))
+        self.assertEqual(canvas.annotation_count(), 1)
+
+    def test_pen_click_without_movement_is_discarded(self):
+        canvas = Canvas(white_pixmap())
+        draw(canvas, "pen", (50, 50), (51, 50))
+        self.assertEqual(canvas.annotation_count(), 0)
+
+    def test_pixelated_area_cannot_be_moved_or_selected(self):
+        canvas = Canvas(white_pixmap())
+        draw(canvas, "pixelate", (10, 10), (90, 90))
+        item = canvas._history[0][1]
+        flags = item.flags()
+        self.assertFalse(flags & QGraphicsItem.GraphicsItemFlag.ItemIsMovable)
+        self.assertFalse(flags & QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+        self.assertFalse(item.isSelected())
+
+    def test_badge_numbers_stay_unique_after_deleting_one(self):
+        canvas = Canvas(white_pixmap())
+        for x in (30, 80, 130):
+            canvas.add_badge(QPointF(x, 60))
+        middle = canvas._history[1][1]
+        canvas._scene.clearSelection()
+        middle.setSelected(True)
+        canvas.delete_selected()
+        canvas.add_badge(QPointF(180, 60))
+        numbers = sorted(e[1].number for e in canvas._history if e[0] == "item" and e[1].scene() is not None)
+        self.assertEqual(numbers, [1, 3, 4])
 
 
 class SaveTest(unittest.TestCase):

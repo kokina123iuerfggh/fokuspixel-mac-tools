@@ -14,7 +14,7 @@ import cleanup
 import llm
 import pipeline
 from history import History
-from hotkey import KeyBinding, PushToTalk, display_name, is_suitable_key, key_name, normalise_key_name
+from hotkey import KeyBinding, PushToTalk, display_name, is_suitable_key, is_valid_key, key_name, normalise_key_name
 from settings import Settings, load_api_key, save_api_key
 from single_instance import SingleInstance
 from version import app_version
@@ -240,6 +240,59 @@ class KeyBindingTest(unittest.TestCase):
 
         self.assertEqual(key_name(Special()), "alt_r")
         self.assertIsNone(key_name(object()))
+
+
+class ReviewFixesTest(unittest.TestCase):
+    """Regressionstests für Fehler aus der Code-Prüfung."""
+
+    def test_pasting_with_cmd_does_not_start_a_recording(self):
+        events = []
+        now = {"t": 0.0}
+        talk = PushToTalk(lambda: events.append("start"), lambda: events.append("stop"), clock=lambda: now["t"])
+        binding = KeyBinding(talk, "cmd", clock=lambda: now["t"])
+        binding.mute(0.5)
+        binding.press("cmd")  # das von der App selbst gedrückte Cmd+V
+        binding.release("cmd")
+        self.assertEqual(events, [])
+        now["t"] = 0.6
+        binding.press("cmd")
+        self.assertEqual(events, ["start"])
+
+    def test_stale_timeout_does_not_cancel_a_newer_capture(self):
+        binding = KeyBinding(PushToTalk(lambda: None, lambda: None), "alt_r")
+        first = binding.capture_next(lambda name: None)
+        binding.press("esc")  # erste Erfassung verbraucht
+        second = binding.capture_next(lambda name: None)
+        self.assertFalse(binding.cancel_capture(first))  # alter Zeitablauf
+        self.assertTrue(binding.capturing)
+        self.assertTrue(binding.cancel_capture(second))
+
+    def test_broken_key_values_do_not_crash(self):
+        for value in (None, 7, "", []):
+            self.assertEqual(display_name(value), "Keine")
+            self.assertFalse(is_suitable_key(value))
+            self.assertFalse(is_valid_key(value))
+        self.assertEqual(normalise_key_name(None), "")
+
+    def test_reset_after_refused_start_keeps_the_state_machine_in_sync(self):
+        events = []
+        talk = PushToTalk(lambda: events.append("start"), lambda: events.append("stop"), clock=lambda: 0.0)
+        talk.press()
+        talk.release()  # kurzer Tipp: Freihand, aber die App hat den Start abgelehnt
+        talk.reset()
+        self.assertEqual(talk.state, "idle")
+        talk.press()
+        self.assertEqual(events, ["start", "start"])
+
+
+class LlmRobustnessTest(unittest.TestCase):
+    def test_unexpected_response_shapes_return_none(self):
+        for body in (b"[]", b'{"content": "text"}', b'{"content": [1, 2]}', b'{"content": [{"type": "text"}]}'):
+            self.assertIsNone(llm.polish("hallo", "k", opener=lambda r, timeout, b=body: FakeResponse(b)), body)
+
+    def test_language_is_named_in_the_prompt(self):
+        self.assertIn("Englisch", llm.build_request("hi", "neutral", "en")["system"])
+        self.assertNotIn("Englisch", llm.build_request("hi", "neutral", "auto")["system"])
 
 
 class StorageTest(unittest.TestCase):

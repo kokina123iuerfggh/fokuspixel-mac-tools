@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 
-from PySide6.QtCore import QObject, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QApplication,
@@ -25,7 +25,7 @@ from hotkey import (
     KeyBinding,
     PushToTalk,
     display_name,
-    is_suitable_key,
+    is_valid_key,
     key_name,
     normalise_key_name,
 )
@@ -57,7 +57,7 @@ class Controller(QObject):
 
     start_requested = Signal()
     stop_requested = Signal()
-    model_ready = Signal()
+    model_ready = Signal(object)
     text_ready = Signal(str, str)
     failed = Signal(str)
     key_captured = Signal(str)  # leer, wenn eine Taste ohne Namen (Buchstabe, Zahl) gedrückt wurde
@@ -69,6 +69,8 @@ class Controller(QObject):
         self.pill = pill
         self.recorder = Recorder()
         self.transcriber = Transcriber(settings["model"])
+        self.binding = None  # wird in main gesetzt
+        self._loading = None  # Transcriber, der gerade geladen wird
         self.ready = False
         self.recording = False
         self.start_requested.connect(self._start)
@@ -78,28 +80,40 @@ class Controller(QObject):
         self.failed.connect(self._on_failed)
 
     def load_model(self, name=None):
-        if name and name != self.transcriber.model_name:
-            self.transcriber = Transcriber(name)
-        self.ready = False
+        name = name or self.transcriber.model_name
+        if name == self.transcriber.model_name and self.ready:
+            return  # schon geladen
+        if self._loading is not None and self._loading.model_name == name:
+            return  # wird schon geladen
+        # Das bisherige Modell bleibt nutzbar, bis das neue fertig ist
+        transcriber = self.transcriber if name == self.transcriber.model_name else Transcriber(name)
+        self._loading = transcriber
         self.pill.show_state("Lade Spracherkennung …", BLUE)
-        threading.Thread(target=self._load, args=(self.transcriber,), daemon=True).start()
+        threading.Thread(target=self._load, args=(transcriber,), daemon=True).start()
 
     def _load(self, transcriber):
         try:
             transcriber.load()
         except Exception as error:  # Download oder Speicher: dem Benutzer melden
             self.failed.emit(f"Modell nicht geladen: {error}")
+            if self._loading is transcriber:
+                self._loading = None
             return
-        if transcriber is self.transcriber:
-            self.model_ready.emit()
+        self.model_ready.emit(transcriber)
 
-    def _on_ready(self):
+    def _on_ready(self, transcriber):
+        if transcriber is not self._loading:
+            return  # inzwischen wurde ein anderes Modell gewählt
+        self._loading = None
+        self.transcriber = transcriber
         self.ready = True
         self.pill.show_state("Klartext ist bereit", GREEN, 1500)
 
     def _start(self):
         if not self.ready:
             self.pill.show_state("Spracherkennung lädt noch …", ORANGE, 1800)
+            if self.binding is not None:
+                self.binding.talk.reset()  # sonst zählt der nächste Druck als Beenden
             return
         try:
             self.recorder.start()
@@ -138,8 +152,15 @@ class Controller(QObject):
         if not text:
             self.pill.show_state("Nichts erkannt", ORANGE, 1500)
             return
-        paste_text(text)
         self.history.add(text, raw)
+        if self.binding is not None:
+            self.binding.mute()  # das Einfügen drückt selbst Cmd+V
+        try:
+            paste_text(text)
+        except Exception as error:
+            QGuiApplication.clipboard().setText(text)
+            self.failed.emit(f"Einfügen fehlgeschlagen, Text liegt in der Zwischenablage: {error}")
+            return
         self.pill.show_state("Eingefügt", GREEN, 1000)
 
     def _on_failed(self, message):
@@ -180,6 +201,8 @@ def add_choice_menu(menu, title, options, current, on_pick):
 
 def build_menu(menu, controller, settings, history, app, binding):
     menu.clear()
+    for child in menu.findChildren(QMenu, options=Qt.FindChildOption.FindDirectChildrenOnly):
+        child.deleteLater()  # clear() entfernt nur die Einträge, die Untermenüs blieben sonst erhalten
     key_label = display_name(settings["key"])
     info = menu.addAction(f"Taste halten: {key_label}  ·  kurz tippen = Freihand")
     info.setEnabled(False)
@@ -223,6 +246,9 @@ def build_menu(menu, controller, settings, history, app, binding):
 
 
 def apply_key(name, controller, settings, binding):
+    if not is_valid_key(name):
+        controller.pill.show_state("Diese Taste passt nicht. Bitte eine andere wählen.", ORANGE, 3500)
+        return
     binding.set_key(name)
     settings["key"] = binding.key
     controller.pill.show_state(f"Aufnahme-Taste: {display_name(binding.key)}", GREEN, 2500)
@@ -231,18 +257,17 @@ def apply_key(name, controller, settings, binding):
 def start_key_capture(controller, binding):
     """Wartet auf den nächsten Tastendruck und meldet ihn über controller.key_captured."""
     controller.pill.show_state("Drücke jetzt die gewünschte Taste …  (Esc bricht ab)", BLUE)
-    binding.capture_next(lambda name: controller.key_captured.emit(name or ""))
+    token = binding.capture_next(lambda name: controller.key_captured.emit(name or ""))
     QTimer.singleShot(
         10000,
-        lambda: binding.cancel_capture() and controller.pill.show_state("Keine Taste gedrückt", ORANGE, 2000),
+        lambda: binding.cancel_capture(token)
+        and controller.pill.show_state("Keine Taste gedrückt", ORANGE, 2000),
     )
 
 
 def handle_captured_key(name, controller, settings, binding):
     if name == "esc":
         controller.pill.show_state("Abgebrochen", ORANGE, 1500)
-    elif not is_suitable_key(name):
-        controller.pill.show_state("Diese Taste passt nicht. Bitte eine andere wählen.", ORANGE, 3500)
     else:
         apply_key(name, controller, settings, binding)
 
@@ -338,10 +363,18 @@ def main():
 
     # Die Aufnahme-Taste kommt aus den Einstellungen und lässt sich im Menü ändern
     saved_key = normalise_key_name(settings["key"])
+    if not is_valid_key(saved_key):
+        settings["key"] = DEFAULT_KEY
+        saved_key = DEFAULT_KEY
+        QTimer.singleShot(
+            2500,
+            lambda: pill.show_state(f"Aufnahme-Taste zurückgesetzt auf {display_name(DEFAULT_KEY)}", ORANGE, 3500),
+        )
     talk = PushToTalk(
         controller.start_requested.emit, controller.stop_requested.emit, settings["tap_seconds"]
     )
-    binding = KeyBinding(talk, saved_key if is_suitable_key(saved_key) else DEFAULT_KEY)
+    binding = KeyBinding(talk, saved_key)
+    controller.binding = binding
 
     controller.key_captured.connect(
         lambda name: handle_captured_key(name, controller, settings, binding)
