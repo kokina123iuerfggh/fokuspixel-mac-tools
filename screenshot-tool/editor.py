@@ -699,9 +699,9 @@ class EditorWindow(QMainWindow):
 
         logo = QLabel()
         logo.setObjectName("logo")
-        logo_pixmap = QPixmap(str(resource_path("assets/logo.png")))
+        logo_pixmap = QPixmap(str(resource_path("assets/icon.png")))
         if not logo_pixmap.isNull():
-            logo.setPixmap(logo_pixmap.scaledToHeight(40, Qt.TransformationMode.SmoothTransformation))
+            logo.setPixmap(logo_pixmap.scaledToHeight(38, Qt.TransformationMode.SmoothTransformation))
         row.addWidget(logo)
         row.addSpacing(10)
 

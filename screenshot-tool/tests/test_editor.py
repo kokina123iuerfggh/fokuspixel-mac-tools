@@ -159,7 +159,7 @@ class ResourceTest(unittest.TestCase):
     def test_logo_files_load(self):
         from resources import resource_path
 
-        for name in ("assets/logo.png", "assets/icon.png"):
+        for name in ("assets/icon.png", "assets/tray.png"):
             self.assertFalse(QPixmap(str(resource_path(name))).isNull(), name)
 
     def test_editor_window_shows_logo(self):

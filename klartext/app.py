@@ -143,6 +143,12 @@ class Controller(QObject):
         self.pill.show_state(message[:90], RED, 5000)
 
 
+def tray_icon():
+    icon = QIcon(str(resource_path("assets/tray.png")))
+    icon.setIsMask(True)  # macOS färbt das Symbol passend zur hellen oder dunklen Menüleiste ein
+    return icon
+
+
 def ask_api_key():
     key, ok = QInputDialog.getText(
         None,
@@ -284,7 +290,7 @@ def main():
 
     menu = QMenu()
     menu.aboutToShow.connect(lambda: build_menu(menu, controller, settings, history, app))
-    tray = QSystemTrayIcon(QIcon(str(resource_path("assets/logo.png"))))
+    tray = QSystemTrayIcon(tray_icon())
     tray.setToolTip(APP_NAME)
     tray.setContextMenu(menu)
     tray.show()

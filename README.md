@@ -11,6 +11,7 @@ Kleine Werkzeuge für den Mac. Sie laufen lokal auf deinem Rechner und brauchen 
 | [`klartext/`](klartext) | Diktieren per Tastendruck. Taste halten, sprechen, loslassen, der aufgeräumte Text erscheint in jeder App. Spracherkennung lokal. |
 | [`screenshot-tool/`](screenshot-tool) | Bildschirm-Werkzeug. Screenshots aufnehmen und markieren, dazu ein Leuchtkreis um den Mauszeiger. |
 | `index.html` | Die Webseite zu den Werkzeugen. |
+| `tools/make_icons.py` | Zeichnet die App-Symbole und die Menüleisten-Symbole beider Apps (`python tools/make_icons.py`). |
 | `.github/workflows/` | Baut die Mac-Apps automatisch in der Cloud und hängt sie als Download an ein Release. |
 
 ## Fertige Apps

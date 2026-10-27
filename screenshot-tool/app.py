@@ -50,7 +50,9 @@ def parse_args():
 
 
 def make_icon():
-    return QIcon(str(resource_path("assets/logo.png")))
+    icon = QIcon(str(resource_path("assets/tray.png")))
+    icon.setIsMask(True)  # macOS färbt das Symbol passend zur hellen oder dunklen Menüleiste ein
+    return icon
 
 
 def capture(area):
